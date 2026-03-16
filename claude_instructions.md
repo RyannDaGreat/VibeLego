@@ -106,9 +106,11 @@ build123d_tests/
 - Implementation: `Text("CLARA", font_size, font_style=FontStyle.BOLD)` + `extrude(0.1)` on stud top face
 
 ### Slope Bricks
-- `lego_slope(studs_x, studs_y, height, slope_edge, flat_rows)`: creates wedge/slope bricks
+- `lego_slope(studs_x, studs_y, height, flat_rows)`: creates wedge/slope bricks
+- Build order: solid outer box → cut slope → subtract slope-trimmed cavity → add studs/tubes
+- Slope terminates at `Z=WALL_THICKNESS` (not Z=0) — creates realistic lip at low end like Lego 3039
 - Uses `split()` with a custom `Plane` to cut the angled surface
-- Cutting plane passes from top of brick at hinge line to bottom at far edge
+- Cavity also split by the same plane to prevent exposed interior through slope face
 - Studs only on the flat (non-sloped) portion
 - Bottom tubes/ridges still present, fillets applied (skip Z=0)
 
@@ -120,10 +122,20 @@ build123d_tests/
 
 ### VLM Render Verification
 - `render_preview.py`: headless Blender script, EEVEE engine
-- 4 diagnostic angles: front-iso (45°/30°), back-iso (225°/30°), top (89°), bottom (-89°)
-- Plastic material: white Principled BSDF, Roughness 0.25, GTAO ambient occlusion
+- 14 diagnostic angles: 6 cardinal (front/back/left/right/top/bottom) + 8 diagonal (±30° elevation at 45°/135°/225°/315° azimuth)
+- Sun lights (no distance attenuation) + ambient world for consistent illumination
+- Auto-smooth shading (30° angle threshold) for crisp edges on curved surfaces
+- Plastic material: white Principled BSDF (0.95 albedo, Roughness 0.3)
 - 1024×1024 PNG output to `renders/` directory
 - Claude reads PNGs via Read tool for visual verification
+
+### General Geometry Functions (reusable outside lego_lib)
+- `centered_grid(nx, ny, spacing, z)` — grid positions centered on XY origin
+- `hollow_box(outer_x, outer_y, outer_z, wall, floor)` — shell with cavity
+- `cylinders_at(radius, height, positions)` — cylinders at arbitrary positions
+- `hollow_cylinders_at(outer_r, inner_r, height, positions)` — tubes at positions
+- `raised_text_at(text, font_size, height, positions)` — extruded text at positions (OCCT font→B-Rep, no SVG intermediate)
+- `fillet_above_z(part, radius, z_threshold)` — fillet edges above a Z plane
 
 ## Convention for User Scripts
 

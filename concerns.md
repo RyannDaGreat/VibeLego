@@ -59,6 +59,43 @@ Launched 7 agents to investigate all angles before writing any code:
 - **Convention**: User scripts get `BUILD123D_PREVIEW_STL` env var for STL output path. Simple, no magic.
 - Version-safe STL import: checks `hasattr(bpy.ops.wm, "stl_import")` at runtime (addressing risk #2).
 
+### Blender startup context crash
+- `bpy.ops.view3d.view_selected()` throws `RuntimeError: Operator bpy.ops.view3d.view_selected.poll() failed` during `--python` startup because the view3d context isn't available yet.
+- Fix: `bpy.context.temp_override(area=area, region=region)` wrapping the operator call.
+- The crash also killed `main()` before the timer was registered, so the watcher never started. Fix: register `bpy.app.timers` BEFORE the initial build, not after.
+
+### build123d dev branch API break
+- `Add` (capital A) renamed to `add` (lowercase) in the dev branch. Import failed silently. Fixed with `replace_all` in lego_lib.py.
+
+### Fillet + text interaction
+- `_apply_fillets()` (now `fillet_above_z()`) fails with `ValueError: Failed creating a fillet` when applied to geometry containing extruded text edges. OCCT can't handle filleting edges smaller than the fillet radius.
+- Root cause: text geometry has sub-0.1mm edges, fillet radius is 0.15mm.
+- Fix: restructure to fillet BEFORE adding text. `lego_studs()` creates cylinders only, `lego_stud_text()` / `raised_text_at()` is called after filleting.
+
+### Slope brick exposed cavity (VLM-caught bug)
+- Initial `lego_slope()` built a hollow box then cut with a slope plane. The cut exposed the interior cavity through the sloped face — visible as a large rectangular opening.
+- First fix attempt: build solid outer → cut slope → subtract slope-trimmed cavity. Used `add(cavity, mode=Mode.SUBTRACT)` and later `sloped_outer - sloped_cavity`. The boolean worked, but the cavity was still visible because...
+- Root cause: the slope cut went to Z=0, eliminating the front wall entirely. The bottom opening (which is correct — bricks ARE open from below) became fully exposed from the +Y side. No wall remained to partially occlude the interior.
+- Confirmed via VLM multi-angle renders: the `front` (side profile) view showed the slope face was solid. The "hole" was actually the bottom opening seen through the zero-height front lip.
+- Final fix: slope plane now terminates at `Z=WALL_THICKNESS` (1.5mm) instead of Z=0, creating a realistic lip like Lego 3039. This was a two-variable change: `slope_dz = height - WALL_THICKNESS` instead of `height`.
+- Lesson: VLM multi-angle verification is essential for 3D geometry bugs. A single iso view can be misleading — the 14-angle render revealed the true nature of the problem.
+
+### Blender EEVEE engine name
+- Blender 5.0: engine is `"BLENDER_EEVEE"`, not `"BLENDER_EEVEE_NEXT"` (which was 4.x).
+- `Material.use_nodes` and `World.use_nodes` are deprecated in 5.0 (nodes always active). Removed the calls, BSDF node is available by default.
+
+### Render quality iteration
+- Initial renders were near-black silhouettes. Point lights with 300W energy at 40-60mm distance attenuate too much for ~16mm brick geometry.
+- Fix: switched to SUN lights (no distance attenuation) + ambient world background + `shade_smooth()` + auto-smooth by angle. Sun lights give consistent illumination regardless of object/camera position.
+
+## 2026-03-15: Generalization Refactoring
+
+### Extracted general functions
+- Analyzed which functions labeled "general" actually were. Most were "specific" — they used LEGO constants (PITCH, WALL_THICKNESS, etc.) directly.
+- Extracted 6 genuinely general functions: `centered_grid`, `hollow_box`, `cylinders_at`, `hollow_cylinders_at`, `raised_text_at`, `fillet_above_z`. All are reusable for any CAD project.
+- LEGO functions are now thin wrappers that compute dimensions and delegate to generals.
+- Text pipeline: build123d's `Text` → `extrude` IS the ideal pipeline. OCCT renders fonts directly to exact B-Rep curves — SVG would be an unnecessary intermediate step.
+
 ### Concern: build123d not yet tested on this machine
 - setup.sh has not been run yet. build123d may fail to install if OCP wheels aren't available for the detected Python version. This is a known risk — the setup script handles it by preferring Python 3.13.
 - End-to-end test (run.sh → Blender → mesh update) not yet performed. Need to verify the full pipeline works.
