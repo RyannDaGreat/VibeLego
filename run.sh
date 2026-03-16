@@ -4,14 +4,14 @@
 # Usage: ./run.sh <source.py>
 #
 # Opens Blender watching the given build123d script. When the script changes,
-# it auto-rebuilds and updates the mesh in Blender (preserving materials).
+# it auto-rebuilds via `uv run` and updates the mesh in Blender (preserving
+# materials). No venv or setup step required — just uv and Blender.
 #
-# Prerequisites: run setup.sh first.
+# Prerequisites: uv, Blender
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
 WATCHER_SCRIPT="$SCRIPT_DIR/blender_watcher.py"
 
 # ── Validate arguments ────────────────────────────────────────────────────────
@@ -34,20 +34,26 @@ if [[ ! -f "$SOURCE_FILE" ]]; then
     exit 1
 fi
 
-# ── Check venv (auto-setup if missing) ────────────────────────────────────────
+# ── Check uv ──────────────────────────────────────────────────────────────────
 
-PYTHON_PATH="$VENV_DIR/bin/python3"
-if [[ ! -x "$PYTHON_PATH" ]]; then
-    echo "Venv not found — running setup.sh..."
-    bash "$SCRIPT_DIR/setup.sh"
-fi
-
-if [[ ! -x "$PYTHON_PATH" ]]; then
-    echo "ERROR: setup.sh failed to create venv at $VENV_DIR"
+if ! command -v uv > /dev/null 2>&1; then
+    echo "ERROR: uv not found. Install via: curl -LsSf https://astral.sh/uv/install.sh | sh"
     exit 1
 fi
 
-# ── Detect Blender ─────────────────────────────────────────────────────────────
+# ── Check submodule ───────────────────────────────────────────────────────────
+
+if [[ ! -f "$SCRIPT_DIR/build123d/pyproject.toml" ]]; then
+    echo "build123d submodule not initialized. Running git submodule update..."
+    git -C "$SCRIPT_DIR" submodule update --init --recursive
+fi
+
+if [[ ! -f "$SCRIPT_DIR/build123d/pyproject.toml" ]]; then
+    echo "ERROR: build123d submodule missing. Run: git submodule update --init"
+    exit 1
+fi
+
+# ── Detect Blender ────────────────────────────────────────────────────────────
 
 find_blender() {
     if [[ -x "/Applications/Blender.app/Contents/MacOS/Blender" ]]; then
@@ -76,15 +82,14 @@ if [[ -z "$BLENDER_CMD" ]]; then
     exit 1
 fi
 
-# ── Determine STL output path ──────────────────────────────────────────────────
+# ── Determine STL output path ────────────────────────────────────────────────
 
 STL_PATH="$(dirname "$SOURCE_FILE")/_preview.stl"
 
-# ── Launch ─────────────────────────────────────────────────────────────────────
+# ── Launch ────────────────────────────────────────────────────────────────────
 
 echo "Launching Blender with live preview..."
 echo "  Source:  $SOURCE_FILE"
-echo "  Python:  $PYTHON_PATH"
 echo "  STL:     $STL_PATH"
 echo "  Blender: $BLENDER_CMD"
 echo ""
@@ -94,4 +99,4 @@ echo ""
 "$BLENDER_CMD" \
     --factory-startup \
     --python "$WATCHER_SCRIPT" \
-    -- "$SOURCE_FILE" "$PYTHON_PATH" "$STL_PATH"
+    -- "$SOURCE_FILE" "$STL_PATH"

@@ -2,15 +2,16 @@
 Blender-side script for live build123d preview.
 
 Command, specific. Launched by run.sh inside Blender. Watches a build123d
-source file for changes, re-runs it via subprocess, and updates the mesh
-in-place (preserving materials, transforms, and modifiers).
+source file for changes, re-runs it via `uv run` (no venv needed), and
+updates the mesh in-place (preserving materials, transforms, and modifiers).
 
 Usage (via run.sh, not directly):
-    blender --factory-startup --python blender_watcher.py -- <source.py> <python_path> <stl_path>
+    blender --factory-startup --python blender_watcher.py -- <source.py> <stl_path>
 """
 
 import bpy
 import os
+import shutil
 import sys
 import subprocess
 import time
@@ -23,23 +24,32 @@ def parse_custom_args():
     Query, specific. Extract arguments after '--' from sys.argv.
 
     Returns:
-        tuple: (source_path, python_path, stl_path)
+        tuple: (source_path, stl_path)
     """
     argv = sys.argv
     if "--" not in argv:
         raise RuntimeError(
             "No custom arguments found. "
-            "Usage: blender --python blender_watcher.py -- <source.py> <python_path> <stl_path>"
+            "Usage: blender --python blender_watcher.py -- <source.py> <stl_path>"
         )
     custom = argv[argv.index("--") + 1 :]
-    if len(custom) < 3:
+    if len(custom) < 2:
         raise RuntimeError(
-            f"Expected 3 arguments after '--', got {len(custom)}: {custom}"
+            f"Expected 2 arguments after '--', got {len(custom)}: {custom}"
         )
-    return custom[0], custom[1], custom[2]
+    return custom[0], custom[1]
 
 
-SOURCE_FILE, PYTHON_PATH, STL_PATH = parse_custom_args()
+SOURCE_FILE, STL_PATH = parse_custom_args()
+
+# Derive repo root and submodule path from this script's location
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+BUILD123D_SUBMODULE = os.path.join(REPO_ROOT, "build123d")
+
+# Find uv binary
+UV_PATH = shutil.which("uv")
+if UV_PATH is None:
+    raise RuntimeError("uv not found on PATH. Install via: curl -LsSf https://astral.sh/uv/install.sh | sh")
 
 POLL_INTERVAL_SECONDS = 0.5
 OBJECT_NAME = "build123d_preview"
@@ -166,15 +176,14 @@ def update_mesh_from_stl(stl_path):
 
 # ── Build subprocess ───────────────────────────────────────────────────────────
 
-def run_build(source_path, python_path, stl_path):
+def run_build(source_path, stl_path):
     """
-    Command, specific. Run a build123d source file via subprocess using
-    the system Python (not Blender's Python). The source file is expected
-    to export its result to the given STL path.
+    Command, specific. Run a build123d source file via `uv run` subprocess
+    (not Blender's Python). The source file is expected to export its result
+    to the given STL path. No venv needed — uv manages a cached environment.
 
     Args:
         source_path (str): Path to the .py file to run.
-        python_path (str): Path to the Python interpreter (in venv).
         stl_path (str): Path where the script should write the STL.
 
     Returns:
@@ -184,7 +193,7 @@ def run_build(source_path, python_path, stl_path):
     env["BUILD123D_PREVIEW_STL"] = stl_path
 
     result = subprocess.run(
-        [python_path, source_path],
+        [UV_PATH, "run", "--with", BUILD123D_SUBMODULE, source_path],
         env=env,
         capture_output=True,
         text=True,
@@ -227,7 +236,7 @@ def poll_source_file():
         _last_source_mtime = source_mtime
         print(f"[watcher] Source changed, rebuilding...")
 
-        if run_build(SOURCE_FILE, PYTHON_PATH, STL_PATH):
+        if run_build(SOURCE_FILE, STL_PATH):
             # Check if STL was actually produced/updated
             if os.path.exists(STL_PATH):
                 stl_mtime = os.path.getmtime(STL_PATH)
@@ -248,10 +257,11 @@ def main():
     does initial build, and starts the file watcher timer.
     """
     print(f"[watcher] Starting build123d live preview")
-    print(f"[watcher]   Source: {SOURCE_FILE}")
-    print(f"[watcher]   Python: {PYTHON_PATH}")
-    print(f"[watcher]   STL:    {STL_PATH}")
-    print(f"[watcher]   Poll:   {POLL_INTERVAL_SECONDS}s")
+    print(f"[watcher]   Source:    {SOURCE_FILE}")
+    print(f"[watcher]   STL:       {STL_PATH}")
+    print(f"[watcher]   uv:        {UV_PATH}")
+    print(f"[watcher]   build123d: {BUILD123D_SUBMODULE}")
+    print(f"[watcher]   Poll:      {POLL_INTERVAL_SECONDS}s")
 
     clear_default_scene()
     setup_viewport()
@@ -262,7 +272,7 @@ def main():
         _last_source_mtime = os.path.getmtime(SOURCE_FILE)
 
         print("[watcher] Running initial build...")
-        if run_build(SOURCE_FILE, PYTHON_PATH, STL_PATH):
+        if run_build(SOURCE_FILE, STL_PATH):
             if os.path.exists(STL_PATH):
                 _last_stl_mtime = os.path.getmtime(STL_PATH)
                 update_mesh_from_stl(STL_PATH)
