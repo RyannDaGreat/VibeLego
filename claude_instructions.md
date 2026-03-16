@@ -155,6 +155,9 @@ Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire exist
 ### split() Caveat
 `split()` does NOT call `clean()` (unlike `fuse`/`cut`/`intersect`). Splitting hollow geometry (e.g., tubes) produces non-manifold topology that corrupts subsequent boolean unions. Use `&` for clipping instead, or call `.clean()` on split results.
 
+### Coplanar Face Caveat
+Never construct two shapes that share an entire planar face and then boolean-union them. OCCT produces degenerate triangles at the shared boundary, causing missing/flipped faces in tessellation (STL export). Example: wall extrusion (Z=0 to 8.6) + ceiling box (Z=8.6 to 9.6) → degenerate triangles at Z=8.6. Fix: use subtraction instead (solid box - cavity), so the ceiling is integral.
+
 ### Locations + BuildSketch Caveat
 `Locations([Pos(0, 0, z)])` does **NOT** move a `BuildSketch(Plane.XY)` to Z=z. The sketch plane stays at Z=0 regardless. Use `BuildSketch(Plane.XY.offset(z))` to place a sketch at a specific Z. `Locations` only moves 3D shapes and sketch *contents* (shapes within a sketch), not the sketch plane itself.
 

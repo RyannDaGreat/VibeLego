@@ -268,3 +268,34 @@ All brick types now show correct max Z = height + stud_height + text_height:
 | 2x2 slope | 131 | 186 | 11.5 |
 
 VLM renders confirm text visible on all studs across all brick types.
+
+## 2026-03-16: Coplanar Ceiling Face Bug
+
+### Symptom
+In Blender live preview, the 2x2 brick body appeared "upside-down" — you could
+see inside the brick through the top surface between studs. The ceiling was
+transparent/missing.
+
+### Root Cause
+The wall frame (2D sketch extrusion from Z=0 to Z=cavity_z=8.6) and ceiling box
+(Z=8.6 to Z=9.6) shared a coplanar face at Z=8.6. OCCT's tessellation produced
+degenerate triangles at this boundary (Blender warned: "Removed 8 degenerate
+triangles during import"), causing the ceiling top face to have flipped normals
+or be missing entirely.
+
+### Fix
+Replaced the wall-frame-extrusion + separate-ceiling-box approach with a solid
+outer box minus cavity subtraction:
+```python
+Box(outer_x, outer_y, height, ...)           # solid block
+Box(inner_x, inner_y, cavity_z, ..., SUBTRACT) # carve cavity from bottom
+```
+The ceiling is now integral to the outer box — no coplanar face exists. Tubes
+are still added via 2D sketch extrusion inside the cavity.
+
+### Lesson
+**Never construct geometry with two shapes sharing an entire planar face.**
+OCCT boolean union handles this poorly — the shared face produces degenerate
+triangles in tessellation. Especially bad when both shapes have the same
+rectangular footprint. Solution: make one shape contain the other (overlap or
+subtraction), don't butt them edge-to-edge.

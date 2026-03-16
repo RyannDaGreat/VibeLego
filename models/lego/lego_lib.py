@@ -96,23 +96,24 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
     """
     outer_x = studs_x * PITCH - 2 * CLEARANCE
     outer_y = studs_y * PITCH - 2 * CLEARANCE
+    inner_x = outer_x - 2 * WALL_THICKNESS
+    inner_y = outer_y - 2 * WALL_THICKNESS
     cavity_z = height - FLOOR_THICKNESS
 
     with BuildPart() as brick:
-        # ── Cross-section (walls + tubes) → extrude ──
-        with BuildSketch():
-            perimeter = Rectangle(outer_x, outer_y)
-            offset(perimeter, amount=-WALL_THICKNESS,
-                   kind=Kind.INTERSECTION, mode=Mode.SUBTRACT)
-            if studs_x >= 2 and studs_y >= 2:
+        # ── Shell: solid box minus cavity (no coplanar face at ceiling) ──
+        Box(outer_x, outer_y, height,
+            align=(Align.CENTER, Align.CENTER, Align.MIN))
+        Box(inner_x, inner_y, cavity_z,
+            align=(Align.CENTER, Align.CENTER, Align.MIN), mode=Mode.SUBTRACT)
+
+        # ── Tubes ──
+        if studs_x >= 2 and studs_y >= 2:
+            with BuildSketch():
                 with GridLocations(PITCH, PITCH, studs_x - 1, studs_y - 1):
                     Circle(TUBE_OUTER_RADIUS)
                     Circle(TUBE_INNER_RADIUS, mode=Mode.SUBTRACT)
-        extrude(amount=cavity_z)
-
-        # ── Ceiling ──
-        Pos(0, 0, cavity_z) * Box(outer_x, outer_y, FLOOR_THICKNESS,
-            align=(Align.CENTER, Align.CENTER, Align.MIN))
+            extrude(amount=cavity_z)
 
         # ── Ridge (1-wide bricks: thin rail grips studs from below) ──
         if min(studs_x, studs_y) == 1 and max(studs_x, studs_y) >= 2:
