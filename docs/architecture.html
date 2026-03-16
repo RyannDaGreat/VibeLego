@@ -22,6 +22,15 @@
   <!-- Mermaid.js for architecture diagrams -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
 
+  <script>
+    // Apply dark mode BEFORE paint to prevent flash
+    (function() {
+      var saved = localStorage.getItem('theme');
+      if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
   <style>
     :root {
       --font-serif: Georgia, 'Times New Roman', serif;
@@ -100,7 +109,7 @@
     .page-header {
       background: var(--color-surface);
       border-bottom: 1px solid var(--color-border);
-      padding: var(--space-xl) var(--space-lg);
+      padding: var(--space-sm) var(--space-lg);
       position: sticky;
       top: 0;
       z-index: 100;
@@ -557,7 +566,7 @@
   <summary>
     <div class="summary-title">
       <span class="section-num">§1</span>
-      <h2>Executive Summary</h2>
+      <h2>Overview</h2>
     </div>
     <span class="chevron">▶</span>
   </summary>
@@ -580,6 +589,38 @@
       Seven alternative approaches were investigated and rejected; their tradeoffs are
       documented here for posterity.
     </p>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ GLOSSARY ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">Glossary</span>
+      <h2>Terminology</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Term</th><th>Definition</th></tr></thead>
+      <tbody>
+        <tr><td><strong>build123d</strong></td><td>Python CAD library for parametric 3D modeling, built on OpenCASCADE (OCP). Successor to CadQuery.</td></tr>
+        <tr><td><strong>OCP / cadquery-ocp</strong></td><td>Python bindings for OpenCASCADE Technology (OCCT) — a C++ geometry kernel. Heavy binary dependency.</td></tr>
+        <tr><td><strong>tessellate</strong></td><td>Converting exact B-Rep (boundary representation) CAD geometry into a triangle mesh (vertices + face indices). The bridge from CAD precision to renderable geometry.</td></tr>
+        <tr><td><strong>mesh-only update</strong></td><td>Replacing vertex/face data of a Blender object without touching the object itself — preserving materials, modifiers, transforms.</td></tr>
+        <tr><td><strong>clear_geometry()</strong></td><td>Blender API method (since 2.81) that removes all verts/edges/faces from a mesh datablock but preserves material slots.</td></tr>
+        <tr><td><strong>from_pydata()</strong></td><td>Blender API method that creates mesh geometry from raw Python lists: <code>mesh.from_pydata(verts, edges, faces)</code>.</td></tr>
+        <tr><td><strong>bpy.app.timers</strong></td><td>Blender's built-in polling mechanism for scheduling periodic callbacks. Returns float (seconds to next call) or None (stop).</td></tr>
+        <tr><td><strong>STL</strong></td><td>Stereolithography file format — compact binary representation of triangle meshes. No colors, no hierarchy, just geometry.</td></tr>
+        <tr><td><strong>mtime</strong></td><td>File modification timestamp from the filesystem. Used to detect source file changes without reading content.</td></tr>
+        <tr><td><strong>WOM</strong></td><td>"Works On My Machine" — anti-pattern where code only runs on the developer's machine due to undocumented dependencies.</td></tr>
+        <tr><td><strong>BlendQuery</strong></td><td>Existing (stale) Blender addon for build123d/CadQuery integration. Uses subprocess + pickle IPC. Broken on Blender 5.0.</td></tr>
+        <tr><td><strong>datablock swap</strong></td><td>Replacing a Blender object's mesh reference (<code>obj.data = new_mesh</code>). Does NOT preserve materials with default settings — that's why we don't use it.</td></tr>
+      </tbody>
+    </table>
+    </div>
   </div>
 </details>
 
