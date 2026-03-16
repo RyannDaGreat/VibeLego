@@ -505,6 +505,37 @@ def _cross_concave_vertices(sketch, v_w, h_h):
     return convex, concave
 
 
+def _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                  cr=0, cr_skip_concave=True):
+    """
+    Pure function, specific. Build a 2D cross footprint sketch (two rectangles).
+
+    Must be called inside a BuildSketch context. Optionally fillets vertices.
+
+    Args:
+        h_w, h_h (float): Horizontal bar width/height.
+        v_w, v_h (float): Vertical bar width/height.
+        h_offset_y (float): Horizontal bar Y offset from center.
+        v_offset_x (float): Vertical bar X offset from center.
+        cr (float): Corner radius. 0 = sharp.
+        cr_skip_concave (bool): Skip concave corners.
+
+    Examples:
+        >>> # Called inside BuildSketch: _cross_sketch(15.6, 7.6, 7.6, 15.6, 0, 0)
+    """
+    with Locations([Pos(0, h_offset_y)]):
+        Rectangle(h_w, h_h)
+    with Locations([Pos(v_offset_x, 0)]):
+        Rectangle(v_w, v_h, mode=Mode.ADD)
+    if cr > 0:
+        sk = BuildSketch._get_context()
+        convex, concave = _cross_concave_vertices(sk, v_w, h_h)
+        if convex:
+            bd_fillet(convex, radius=cr)
+        if concave and not cr_skip_concave:
+            bd_fillet(concave, radius=cr)
+
+
 def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
                        height, corner_radius=0, cr_skip_concave=True,
                        taper_height=0, taper_inset=0, taper_curve="LINEAR"):
@@ -512,9 +543,8 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     Pure function, specific. Build the outer shell for a cross-shaped brick.
 
     Union of two rectangular bars (horizontal and vertical), extruded to height.
-    When corner_radius > 0, convex corners are filleted in 2D before extrusion.
-    Concave (reentrant) corners are filleted only if cr_skip_concave is False.
-    Taper is NOT supported for cross shapes.
+    When corner_radius > 0, vertices are filleted in 2D.
+    When taper is active, builds via multi-section loft (same as rectangle taper).
 
     Args:
         plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
@@ -522,9 +552,9 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
         height (float): Body height.
         corner_radius (float): 2D corner rounding radius. 0 = sharp.
         cr_skip_concave (bool): Skip concave (reentrant) corners. Default True.
-        taper_height (float): Ignored for cross shapes.
-        taper_inset (float): Ignored for cross shapes.
-        taper_curve (str): Ignored for cross shapes.
+        taper_height (float): Wall taper height from top. 0 = no taper.
+        taper_inset (float): Per-side inset at top. 0 = no taper.
+        taper_curve (str): "LINEAR" or "CURVED".
 
     Returns:
         Part: Outer shell solid (no cavity).
@@ -532,6 +562,7 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     Examples:
         >>> # _build_cross_shell(1, 1, 1, 1, 1, 1, 9.6)  -> + shape
         >>> # _build_cross_shell(1, 1, 1, 1, 1, 1, 9.6, corner_radius=2.0)
+        >>> # _build_cross_shell(1, 1, 1, 1, 1, 1, 9.6, taper_height=2.0, taper_inset=0.5)
     """
     dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
                                  width_x, width_y)
@@ -545,27 +576,56 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     v_offset_x = (minus_x - plus_x) / 2 * PITCH
 
     cr = _clamp_cr(corner_radius, min(h_w, v_w), min(h_h, v_h)) if corner_radius > 0 else 0
+    has_taper = taper_height > 0 and taper_inset > 0
+
+    if has_taper:
+        # Loft approach: same as _build_outer_shell but with cross footprint
+        taper_start_z = height - taper_height
+        with BuildPart() as shell:
+            # Base sketch (Z=0)
+            with BuildSketch(Plane.XY):
+                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                              cr, cr_skip_concave)
+            # Sketch at taper start (same size)
+            with BuildSketch(Plane.XY.offset(taper_start_z)):
+                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                              cr, cr_skip_concave)
+            # Intermediate sketches for curved taper
+            if taper_curve == "CURVED":
+                for i in range(1, _CURVED_TAPER_STEPS):
+                    t = i / _CURVED_TAPER_STEPS
+                    z = taper_start_z + taper_height * t
+                    inset = taper_inset * _taper_profile(t, "CURVED")
+                    tw = h_w - 2 * inset
+                    th = h_h - 2 * inset
+                    tvw = v_w - 2 * inset
+                    tvh = v_h - 2 * inset
+                    tcr = _clamp_cr(cr, min(tw, tvw), min(th, tvh)) if cr > 0 else 0
+                    with BuildSketch(Plane.XY.offset(z)):
+                        _cross_sketch(tw, th, tvw, tvh, h_offset_y, v_offset_x,
+                                      tcr, cr_skip_concave)
+            # Top sketch (inset)
+            top_hw = h_w - 2 * taper_inset
+            top_hh = h_h - 2 * taper_inset
+            top_vw = v_w - 2 * taper_inset
+            top_vh = v_h - 2 * taper_inset
+            top_cr = _clamp_cr(cr, min(top_hw, top_vw), min(top_hh, top_vh)) if cr > 0 else 0
+            with BuildSketch(Plane.XY.offset(height)):
+                _cross_sketch(top_hw, top_hh, top_vw, top_vh,
+                              h_offset_y, v_offset_x, top_cr, cr_skip_concave)
+            loft(ruled=True)
+        return shell.part
 
     if cr > 0:
-        # 2D sketch approach: union of two rectangles, fillet selected vertices
+        # 2D sketch + fillet + extrude
         with BuildPart() as shell:
-            with BuildSketch() as sk:
-                with Locations([Pos(0, h_offset_y)]):
-                    Rectangle(h_w, h_h)
-                with Locations([Pos(v_offset_x, 0)]):
-                    Rectangle(v_w, v_h, mode=Mode.ADD)
-
-                convex, concave = _cross_concave_vertices(sk, v_w, h_h)
-                # Always fillet convex corners
-                if convex:
-                    bd_fillet(convex, radius=cr)
-                # Fillet concave only if cr_skip_concave is False
-                if concave and not cr_skip_concave:
-                    bd_fillet(concave, radius=cr)
+            with BuildSketch():
+                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                              cr, cr_skip_concave)
             extrude(amount=height)
         return shell.part
 
-    # No corner radius: fast Box union
+    # No corner radius, no taper: fast Box union
     with BuildPart() as shell:
         Pos(0, h_offset_y, 0) * Box(h_w, h_h, height,
             align=(Align.CENTER, Align.CENTER, Align.MIN))
@@ -734,6 +794,7 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
         return _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
                             cross_width_x, cross_width_y, corner_radius,
                             cr_skip_concave,
+                            taper_height, taper_inset, taper_curve,
                             stud_taper_height, stud_taper_inset, stud_taper_curve)
 
     # ── RECTANGLE mode ──
@@ -803,6 +864,7 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
 
 def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
                  width_x, width_y, corner_radius=0, cr_skip_concave=True,
+                 taper_height=0, taper_inset=0, taper_curve="LINEAR",
                  stud_taper_height=0, stud_taper_inset=0, stud_taper_curve="LINEAR"):
     """
     Pure function, specific. Build a cross-shaped brick.
@@ -814,6 +876,8 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
         width_x, width_y (int): Arm widths.
         corner_radius (float): 2D corner rounding radius.
         cr_skip_concave (bool): Skip concave corners in corner radius. Default True.
+        taper_height, taper_inset (float): Wall taper params.
+        taper_curve (str): Wall taper curve type.
         stud_taper_height, stud_taper_inset (float): Stud taper params.
         stud_taper_curve (str): Stud taper curve type.
 
@@ -831,7 +895,10 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
     outer_shell = _build_cross_shell(plus_x, minus_x, plus_y, minus_y,
                                      width_x, width_y, height,
                                      corner_radius=corner_radius,
-                                     cr_skip_concave=cr_skip_concave)
+                                     cr_skip_concave=cr_skip_concave,
+                                     taper_height=taper_height,
+                                     taper_inset=taper_inset,
+                                     taper_curve=taper_curve)
     cavity = _build_cross_cavity(plus_x, minus_x, plus_y, minus_y,
                                  width_x, width_y, cavity_z)
 
@@ -982,6 +1049,9 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
                             cross_width_x, cross_width_y,
                             corner_radius=corner_radius,
                             cr_skip_concave=cr_skip_concave,
+                            taper_height=taper_height,
+                            taper_inset=taper_inset,
+                            taper_curve=taper_curve,
                             stud_taper_height=stud_taper_height,
                             stud_taper_inset=stud_taper_inset,
                             stud_taper_curve=stud_taper_curve)
@@ -1140,6 +1210,7 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
                  plus_x, minus_x, plus_y, minus_y,
                  width_x, width_y,
                  corner_radius=0, cr_skip_concave=True,
+                 taper_height=0, taper_inset=0, taper_curve="LINEAR",
                  stud_taper_height=0, stud_taper_inset=0, stud_taper_curve="LINEAR"):
     """
     Pure function, specific. Build a cross-shaped slope brick.
@@ -1153,6 +1224,8 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
         width_x, width_y (int): Arm widths.
         corner_radius (float): 2D corner rounding radius.
         cr_skip_concave (bool): Skip concave corners in corner radius.
+        taper_height, taper_inset (float): Wall taper params.
+        taper_curve (str): Wall taper curve type.
         stud_taper_height, stud_taper_inset (float): Stud taper params.
         stud_taper_curve (str): Stud taper curve type.
 
@@ -1184,7 +1257,10 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
     outer = _build_cross_shell(plus_x, minus_x, plus_y, minus_y,
                                width_x, width_y, height,
                                corner_radius=corner_radius,
-                               cr_skip_concave=cr_skip_concave)
+                               cr_skip_concave=cr_skip_concave,
+                               taper_height=taper_height,
+                               taper_inset=taper_inset,
+                               taper_curve=taper_curve)
     sloped_outer = outer
     for cp in cut_planes:
         sloped_outer = split(sloped_outer, bisect_by=cp, keep=Keep.BOTTOM)

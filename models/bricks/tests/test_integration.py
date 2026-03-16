@@ -88,6 +88,12 @@ CONFIGS = [
                        "cross_width_x": 1, "cross_width_y": 1,
                        "enable_slope": True, "slope_plus_y": 3}),
 
+    # Cross + taper
+    ("Cross + taper", {"shape_mode": "CROSS", "studs_plus_x": 2, "studs_minus_x": 2,
+                        "studs_plus_y": 2, "studs_minus_y": 2,
+                        "cross_width_x": 1, "cross_width_y": 1,
+                        "taper_height": 2.0, "taper_inset": 0.3}),
+
     # No studs
     ("No studs", {**_NO_CLARA, "studs_x": 2, "studs_y": 4, "ENABLE_STUDS": False}),
 ]
