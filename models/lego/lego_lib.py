@@ -56,16 +56,202 @@ TUBE_OUTER_RADIUS = TUBE_OUTER_DIAMETER / 2
 TUBE_INNER_RADIUS = TUBE_INNER_DIAMETER / 2
 
 
-# ── General geometry functions ─────────────────────────────────────────────────
+# ── General geometry functions ───────────────────────────────────────────────
+
+def centered_grid(nx, ny, spacing, z=0.0):
+    """
+    Pure function, general. Compute centered grid positions.
+
+    Returns positions for an nx × ny grid with given spacing, centered
+    on the XY origin at the given Z height.
+
+    Args:
+        nx (int): Number of positions along X.
+        ny (int): Number of positions along Y.
+        spacing (float): Distance between adjacent positions (mm).
+        z (float): Z coordinate for all positions.
+
+    Returns:
+        list[Pos]: Grid positions, row-major order.
+
+    Examples:
+        >>> # centered_grid(2, 2, 8.0) -> [Pos(-4,-4,0), Pos(-4,4,0), Pos(4,-4,0), Pos(4,4,0)]
+        >>> # centered_grid(1, 1, 8.0, z=5.0) -> [Pos(0, 0, 5.0)]
+        >>> # centered_grid(3, 1, 10.0) -> [Pos(-10,0,0), Pos(0,0,0), Pos(10,0,0)]
+    """
+    return [
+        Pos(
+            (i - (nx - 1) / 2) * spacing,
+            (j - (ny - 1) / 2) * spacing,
+            z,
+        )
+        for i in range(nx)
+        for j in range(ny)
+    ]
+
+
+def hollow_box(outer_x, outer_y, outer_z, wall, floor):
+    """
+    Pure function, general. Create a hollow box (shell with open bottom cavity).
+
+    The box has uniform wall thickness on all four sides and a solid floor
+    (ceiling when viewed from inside). The cavity opens downward from Z=0.
+
+    Args:
+        outer_x (float): Outer width (X dimension).
+        outer_y (float): Outer depth (Y dimension).
+        outer_z (float): Outer height (Z dimension).
+        wall (float): Wall thickness on all four sides.
+        floor (float): Top ceiling thickness.
+
+    Returns:
+        Part: Hollow box, centered on XY, bottom at Z=0.
+
+    Examples:
+        >>> # hollow_box(15.8, 31.8, 9.6, 1.5, 1.0)
+        >>> #   -> 15.8×31.8×9.6mm shell, 1.5mm walls, 1.0mm ceiling
+        >>> # hollow_box(10, 10, 5, 2, 1)
+        >>> #   -> 10×10×5 box with 6×6×4 cavity
+    """
+    inner_x = outer_x - 2 * wall
+    inner_y = outer_y - 2 * wall
+    inner_z = outer_z - floor
+
+    with BuildPart() as body:
+        Box(outer_x, outer_y, outer_z,
+            align=(Align.CENTER, Align.CENTER, Align.MIN))
+        Box(inner_x, inner_y, inner_z,
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+            mode=Mode.SUBTRACT)
+
+    return body.part
+
+
+def cylinders_at(radius, height, positions):
+    """
+    Pure function, general. Place cylinders at multiple positions.
+
+    Each cylinder is aligned center-center-min (centered on XY, bottom at
+    the position's Z coordinate).
+
+    Args:
+        radius (float): Cylinder radius.
+        height (float): Cylinder height.
+        positions (list[Pos]): Where to place each cylinder.
+
+    Returns:
+        Part: All cylinders fused into a single Part.
+
+    Examples:
+        >>> # cylinders_at(2.4, 1.8, [Pos(0,0,9.6)]) -> one stud
+        >>> # cylinders_at(3, 5, centered_grid(2, 2, 8)) -> 4 cylinders in a grid
+    """
+    with BuildPart() as result:
+        with Locations(positions):
+            Cylinder(radius, height,
+                     align=(Align.CENTER, Align.CENTER, Align.MIN))
+    return result.part
+
+
+def hollow_cylinders_at(outer_radius, inner_radius, height, positions):
+    """
+    Pure function, general. Place hollow cylinders (tubes) at multiple positions.
+
+    Args:
+        outer_radius (float): Outer cylinder radius.
+        inner_radius (float): Inner hole radius.
+        height (float): Cylinder height.
+        positions (list[Pos]): Where to place each tube.
+
+    Returns:
+        Part: All tubes fused into a single Part.
+
+    Examples:
+        >>> # hollow_cylinders_at(3.155, 2.4, 8.6, [Pos(0,0,0)])
+        >>> #   -> one tube with 3.155mm outer, 2.4mm inner radius
+    """
+    with BuildPart() as result:
+        with Locations(positions):
+            Cylinder(outer_radius, height,
+                     align=(Align.CENTER, Align.CENTER, Align.MIN))
+            Cylinder(inner_radius, height,
+                     align=(Align.CENTER, Align.CENTER, Align.MIN),
+                     mode=Mode.SUBTRACT)
+    return result.part
+
+
+def raised_text_at(text, font_size, height, positions,
+                   font_style=FontStyle.BOLD):
+    """
+    Pure function, general. Create raised (extruded) text at multiple positions.
+
+    Each position gets a copy of the text, extruded upward by `height`.
+    Text is centered on XY at each position. The position's Z coordinate
+    is the base of the text extrusion.
+
+    Uses build123d's Text class which renders fonts via OCCT directly to
+    exact B-Rep curves — no SVG or rasterization intermediate needed.
+
+    Must be added AFTER filleting — text edges are too fine for most
+    fillet radii and will cause OCCT kernel failures.
+
+    Args:
+        text (str): The text string to render.
+        font_size (float): Font size in mm.
+        height (float): Extrusion height (raised amount) in mm.
+        positions (list[Pos]): Where to place each text instance.
+        font_style (FontStyle): Font style. Default BOLD.
+
+    Returns:
+        Part: All text geometry fused into a single Part.
+
+    Examples:
+        >>> # raised_text_at("ACME", 1.0, 0.1, [Pos(0, 0, 5)])
+        >>> #   -> "ACME" in bold, 0.1mm raised, at Z=5
+        >>> # raised_text_at("OK", 2.0, 0.5, centered_grid(2, 2, 10, z=3))
+        >>> #   -> "OK" at 4 grid positions
+    """
+    with BuildPart() as result:
+        with Locations(positions):
+            with BuildSketch(Plane.XY):
+                Text(text, font_size=font_size, font_style=font_style,
+                     align=(Align.CENTER, Align.CENTER))
+            extrude(amount=height)
+    return result.part
+
+
+def fillet_above_z(part, radius, z_threshold=0.0, tolerance=0.01):
+    """
+    Pure function, general. Fillet all edges except those at or below a
+    Z threshold. Useful for parts that sit on a build plate — keeps the
+    bottom edges sharp for clean 3D printing bed adhesion.
+
+    Args:
+        part (Part): Solid to fillet.
+        radius (float): Fillet radius in mm.
+        z_threshold (float): Edges with center Z <= this are skipped.
+        tolerance (float): Z comparison tolerance.
+
+    Returns:
+        Part: Filleted solid.
+
+    Examples:
+        >>> # fillet_above_z(box, 0.15) -> fillets everything except Z=0 edges
+        >>> # fillet_above_z(box, 0.5, z_threshold=2.0) -> skip edges at Z<=2
+    """
+    skip = [e for e in part.edges() if e.center().Z <= z_threshold + tolerance]
+    fillet_edges = [e for e in part.edges() if e not in skip]
+    return part.fillet(radius, fillet_edges)
+
+
+# ── Clara brick functions (specific) ─────────────────────────────────────────
 
 def lego_brick_body(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, general. Create the solid outer shell of a brick
-    with hollow interior.
+    Pure function, specific. Create the hollow outer shell of a Clara brick.
 
-    The body is a box with walls of WALL_THICKNESS and a floor of
-    FLOOR_THICKNESS. Interior is hollow to save material and allow
-    stud clutching from below.
+    Computes outer dimensions from stud count × PITCH - CLEARANCE, then
+    delegates to hollow_box().
 
     Args:
         studs_x (int): Number of studs along X axis.
@@ -76,31 +262,20 @@ def lego_brick_body(studs_x, studs_y, height=BRICK_HEIGHT):
         Part: Hollow brick body centered on XY, bottom at Z=0.
 
     Examples:
-        >>> # lego_brick_body(2, 4) -> 16mm x 32mm x 9.6mm hollow box
-        >>> # lego_brick_body(1, 1, PLATE_HEIGHT) -> 8mm x 8mm x 3.2mm plate
+        >>> # lego_brick_body(2, 4) -> 15.8mm x 31.8mm x 9.6mm hollow box
+        >>> # lego_brick_body(1, 1, PLATE_HEIGHT) -> 7.8mm x 7.8mm x 3.2mm plate
     """
     outer_x = studs_x * PITCH - 2 * CLEARANCE
     outer_y = studs_y * PITCH - 2 * CLEARANCE
-    inner_x = outer_x - 2 * WALL_THICKNESS
-    inner_y = outer_y - 2 * WALL_THICKNESS
-    inner_z = height - FLOOR_THICKNESS
-
-    with BuildPart() as body:
-        # Outer shell
-        Box(outer_x, outer_y, height, align=(Align.CENTER, Align.CENTER, Align.MIN))
-        # Hollow interior (subtract inner cavity)
-        Box(
-            inner_x, inner_y, inner_z,
-            align=(Align.CENTER, Align.CENTER, Align.MIN),
-            mode=Mode.SUBTRACT,
-        )
-
-    return body.part
+    return hollow_box(outer_x, outer_y, height, WALL_THICKNESS, FLOOR_THICKNESS)
 
 
-def _stud_positions(studs_x, studs_y, z_offset=0.0):
+def lego_studs(studs_x, studs_y, z_offset=0.0):
     """
-    Pure function, general. Compute stud center positions for a grid.
+    Pure function, specific. Create studs arranged in a grid on top of a brick.
+
+    Studs are cylinders of STUD_DIAMETER × STUD_HEIGHT at PITCH spacing.
+    Text is added separately after filleting via raised_text_at().
 
     Args:
         studs_x (int): Number of studs along X.
@@ -108,50 +283,15 @@ def _stud_positions(studs_x, studs_y, z_offset=0.0):
         z_offset (float): Z position of stud bases.
 
     Returns:
-        list[Pos]: List of position objects for each stud.
-
-    Examples:
-        >>> # _stud_positions(2, 2, 9.6) -> [Pos(-4,  -4, 9.6), ...]
-    """
-    return [
-        Pos(
-            (i - (studs_x - 1) / 2) * PITCH,
-            (j - (studs_y - 1) / 2) * PITCH,
-            z_offset,
-        )
-        for i in range(studs_x)
-        for j in range(studs_y)
-    ]
-
-
-def lego_studs(studs_x, studs_y, z_offset=0.0):
-    """
-    Pure function, general. Create studs arranged in a grid on top of a brick.
-
-    Studs are cylinders of STUD_DIAMETER x STUD_HEIGHT, positioned at
-    PITCH spacing, centered on the brick footprint. Text is added separately
-    after filleting via lego_stud_text().
-
-    Args:
-        studs_x (int): Number of studs along X.
-        studs_y (int): Number of studs along Y.
-        z_offset (float): Z position of stud bases. Default 0.
-
-    Returns:
-        Part: All studs as a single Part (no text — added later).
+        Part: All studs as a single Part.
 
     Examples:
         >>> # lego_studs(2, 4, z_offset=9.6) -> 8 studs at Z=9.6
     """
-    with BuildPart() as studs:
-        with Locations(_stud_positions(studs_x, studs_y, z_offset)):
-            Cylinder(
-                STUD_RADIUS,
-                STUD_HEIGHT,
-                align=(Align.CENTER, Align.CENTER, Align.MIN),
-            )
-
-    return studs.part
+    return cylinders_at(
+        STUD_RADIUS, STUD_HEIGHT,
+        centered_grid(studs_x, studs_y, PITCH, z=z_offset),
+    )
 
 
 def lego_stud_text(studs_x, studs_y, z_offset=0.0):
@@ -159,12 +299,11 @@ def lego_stud_text(studs_x, studs_y, z_offset=0.0):
     Pure function, specific. Create raised "CLARA" text for all studs.
 
     Added AFTER filleting to avoid fillet failures on tiny text edges.
-    Each stud gets 0.1mm raised bold text centered on its top face.
 
     Args:
         studs_x (int): Number of studs along X.
         studs_y (int): Number of studs along Y.
-        z_offset (float): Z position of stud bases (text sits at z_offset + STUD_HEIGHT).
+        z_offset (float): Z position of stud bases (text at z_offset + STUD_HEIGHT).
 
     Returns:
         Part: All text geometry as a single Part.
@@ -172,29 +311,18 @@ def lego_stud_text(studs_x, studs_y, z_offset=0.0):
     Examples:
         >>> # lego_stud_text(2, 4, z_offset=9.6) -> "CLARA" on 8 studs
     """
-    text_z = z_offset + STUD_HEIGHT
-
-    with BuildPart() as texts:
-        with Locations(_stud_positions(studs_x, studs_y, text_z)):
-            with BuildSketch(Plane.XY):
-                Text(
-                    STUD_TEXT,
-                    font_size=STUD_TEXT_FONT_SIZE,
-                    font_style=FontStyle.BOLD,
-                    align=(Align.CENTER, Align.CENTER),
-                )
-            extrude(amount=STUD_TEXT_HEIGHT)
-
-    return texts.part
+    return raised_text_at(
+        STUD_TEXT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+        centered_grid(studs_x, studs_y, PITCH, z=z_offset + STUD_HEIGHT),
+    )
 
 
 def lego_bottom_tubes(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, general. Create anti-stud tubes for the underside of
+    Pure function, specific. Create anti-stud tubes for the underside of
     bricks that are 2+ studs wide in both dimensions.
 
-    Tubes are hollow cylinders placed between each 2x2 group of studs.
-    Their outer diameter grips studs from adjacent bricks.
+    Tubes are hollow cylinders placed between each 2×2 group of studs.
 
     Args:
         studs_x (int): Number of studs along X.
@@ -205,7 +333,7 @@ def lego_bottom_tubes(studs_x, studs_y, height=BRICK_HEIGHT):
         Part or None: Tubes as a single Part, or None if brick is too small.
 
     Examples:
-        >>> # lego_bottom_tubes(2, 4) -> 4 tubes for a 2x4 brick
+        >>> # lego_bottom_tubes(2, 4) -> 3 tubes for a 2x4 brick
         >>> # lego_bottom_tubes(1, 2) -> None (1-wide, uses ridge instead)
     """
     if studs_x < 2 or studs_y < 2:
@@ -215,36 +343,15 @@ def lego_bottom_tubes(studs_x, studs_y, height=BRICK_HEIGHT):
     tube_count_y = studs_y - 1
     tube_height = height - FLOOR_THICKNESS
 
-    with BuildPart() as tubes:
-        with Locations(
-            [
-                Pos(
-                    (i - (tube_count_x - 1) / 2) * PITCH,
-                    (j - (tube_count_y - 1) / 2) * PITCH,
-                    0,
-                )
-                for i in range(tube_count_x)
-                for j in range(tube_count_y)
-            ]
-        ):
-            Cylinder(
-                TUBE_OUTER_RADIUS,
-                tube_height,
-                align=(Align.CENTER, Align.CENTER, Align.MIN),
-            )
-            Cylinder(
-                TUBE_INNER_RADIUS,
-                tube_height,
-                align=(Align.CENTER, Align.CENTER, Align.MIN),
-                mode=Mode.SUBTRACT,
-            )
-
-    return tubes.part
+    return hollow_cylinders_at(
+        TUBE_OUTER_RADIUS, TUBE_INNER_RADIUS, tube_height,
+        centered_grid(tube_count_x, tube_count_y, PITCH),
+    )
 
 
 def lego_bottom_ridge(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, general. Create a bottom ridge rail for 1-wide bricks.
+    Pure function, specific. Create a bottom ridge rail for 1-wide bricks.
 
     1-wide bricks (1xN where N >= 2) have a single rail running along
     the length instead of tubes. This rail grips studs from below.
@@ -261,7 +368,6 @@ def lego_bottom_ridge(studs_x, studs_y, height=BRICK_HEIGHT):
         >>> # lego_bottom_ridge(1, 4) -> rail along Y axis
         >>> # lego_bottom_ridge(2, 4) -> None (uses tubes instead)
     """
-    # Only for 1-wide bricks with 2+ studs in the other dimension
     if min(studs_x, studs_y) != 1 or max(studs_x, studs_y) < 2:
         return None
 
@@ -270,13 +376,11 @@ def lego_bottom_ridge(studs_x, studs_y, height=BRICK_HEIGHT):
 
     with BuildPart() as ridge:
         if studs_x == 1:
-            # Ridge along Y
             Pos(0, 0, ridge_z) * Box(
                 RIDGE_WIDTH, ridge_length, RIDGE_HEIGHT,
                 align=(Align.CENTER, Align.CENTER, Align.MIN),
             )
         else:
-            # Ridge along X
             Pos(0, 0, ridge_z) * Box(
                 ridge_length, RIDGE_WIDTH, RIDGE_HEIGHT,
                 align=(Align.CENTER, Align.CENTER, Align.MIN),
@@ -285,36 +389,11 @@ def lego_bottom_ridge(studs_x, studs_y, height=BRICK_HEIGHT):
     return ridge.part
 
 
-def _apply_fillets(result):
-    """
-    Pure function, specific. Apply fillets to all edges except the bottom
-    plane (Z=0) for 3D printability.
-
-    Must be called BEFORE adding stud text — text edges are too small
-    for the fillet radius and will cause OCCT failures.
-
-    Args:
-        result (Part): Solid to fillet.
-
-    Returns:
-        Part: Filleted solid.
-
-    Examples:
-        >>> # _apply_fillets(some_brick) -> same brick with 0.15mm fillets
-    """
-    bottom_edges = [e for e in result.edges() if abs(e.center().Z) < 0.01]
-    fillet_edges = [e for e in result.edges() if e not in bottom_edges]
-    return result.fillet(FILLET_RADIUS, fillet_edges)
-
-
-# ── Specific brick builders ────────────────────────────────────────────────────
-
 def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, general. Create a complete anatomically correct brick.
+    Pure function, specific. Create a complete anatomically correct Clara brick.
 
-    Assembles: hollow body + studs with "CLARA" text on top + bottom
-    tubes (2+ wide) or bottom ridge (1-wide) + fillets.
+    Assembles: hollow body + studs + bottom tubes/ridge + fillets + "CLARA" text.
 
     Args:
         studs_x (int): Studs along X (e.g., 2 for a 2x4 brick).
@@ -330,7 +409,6 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
         >>> # lego_brick(1, 1) -> 1x1 brick
         >>> # lego_brick(2, 2, PLATE_HEIGHT) -> 2x2 plate
     """
-    # Build structural geometry (body + studs + tubes/ridges)
     with BuildPart() as brick:
         add(lego_brick_body(studs_x, studs_y, height))
         add(lego_studs(studs_x, studs_y, z_offset=height))
@@ -344,7 +422,7 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
             add(ridge)
 
     # Fillet BEFORE text (text edges are too small for OCCT filleter)
-    result = _apply_fillets(brick.part)
+    result = fillet_above_z(brick.part, FILLET_RADIUS)
 
     # Add raised text on stud tops
     with BuildPart() as final:
@@ -360,7 +438,7 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
 
     The brick body is cut at an angle from the top of the flat portion
     down to the bottom of the far edge. Only studs on the flat (non-sloped)
-    rows are retained. Bottom tubes/ridges are still present.
+    rows are retained. Bottom tubes/ridges still present.
 
     The slope descends toward +Y (the "back" of the brick). The flat_rows
     parameter controls how many rows of studs remain on the front.
@@ -380,30 +458,21 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
     """
     outer_y = studs_y * PITCH - 2 * CLEARANCE
 
-    # Build full body + studs only on flat rows + bottom structure
+    # XY coords for flat rows (toward -Y, j < flat_rows)
+    flat_xy = [
+        ((i - (studs_x - 1) / 2) * PITCH,
+         (j - (studs_y - 1) / 2) * PITCH)
+        for i in range(studs_x)
+        for j in range(flat_rows)
+    ]
+    stud_positions = [Pos(x, y, height) for x, y in flat_xy]
+
+    # Build full body + flat studs + bottom structure
     with BuildPart() as brick:
         add(lego_brick_body(studs_x, studs_y, height))
 
-        # Only place studs on flat_rows (front rows, toward -Y)
-        # Stud positions: j=0 is the -Y side, j=studs_y-1 is the +Y side
-        # We keep j < flat_rows
-        # Studs only on flat rows (toward -Y)
-        flat_stud_positions = [
-            Pos(
-                (i - (studs_x - 1) / 2) * PITCH,
-                (j - (studs_y - 1) / 2) * PITCH,
-                height,
-            )
-            for i in range(studs_x)
-            for j in range(flat_rows)
-        ]
-        if flat_stud_positions:
-            with Locations(flat_stud_positions):
-                Cylinder(
-                    STUD_RADIUS,
-                    STUD_HEIGHT,
-                    align=(Align.CENTER, Align.CENTER, Align.MIN),
-                )
+        if stud_positions:
+            add(cylinders_at(STUD_RADIUS, STUD_HEIGHT, stud_positions))
 
         tubes = lego_bottom_tubes(studs_x, studs_y, height)
         if tubes is not None:
@@ -413,44 +482,27 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
         if ridge is not None:
             add(ridge)
 
-    result = brick.part
-
     # Cut the slope: plane from top at hinge to bottom at far edge
     hinge_y = -outer_y / 2 + flat_rows * PITCH
     slope_dy = outer_y / 2 - hinge_y
-    slope_dz = height
     cut_plane = Plane(
         origin=(0, hinge_y, height),
         x_dir=(1, 0, 0),
-        z_dir=(0, slope_dz, slope_dy),
+        z_dir=(0, height, slope_dy),
     )
-    result = split(result, bisect_by=cut_plane, keep=Keep.BOTTOM)
+    result = split(brick.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
 
     # Fillet, then add text on flat studs
-    result = _apply_fillets(result)
+    result = fillet_above_z(result, FILLET_RADIUS)
 
-    # Add raised text on the flat studs only
-    text_positions = [
-        Pos(
-            (i - (studs_x - 1) / 2) * PITCH,
-            (j - (studs_y - 1) / 2) * PITCH,
-            height + STUD_HEIGHT,
-        )
-        for i in range(studs_x)
-        for j in range(flat_rows)
-    ]
+    text_positions = [Pos(x, y, height + STUD_HEIGHT) for x, y in flat_xy]
     if text_positions:
         with BuildPart() as final:
             add(result)
-            with Locations(text_positions):
-                with BuildSketch(Plane.XY):
-                    Text(
-                        STUD_TEXT,
-                        font_size=STUD_TEXT_FONT_SIZE,
-                        font_style=FontStyle.BOLD,
-                        align=(Align.CENTER, Align.CENTER),
-                    )
-                extrude(amount=STUD_TEXT_HEIGHT)
+            add(raised_text_at(
+                STUD_TEXT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+                text_positions,
+            ))
         result = final.part
 
     return result
