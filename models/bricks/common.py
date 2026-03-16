@@ -22,6 +22,8 @@ CLEARANCE = 0.1         # per-side fit clearance
 
 FILLET_RADIUS = 0.15    # edge rounding
 ENABLE_FILLET = True    # toggle fillets on/off
+EDGE_STYLE = "FILLET"   # "FILLET" (rounded) or "CHAMFER" (straight bevel)
+FILLET_BOTTOM = False   # include bottom (Z=0) edges in fillet/chamfer
 ENABLE_TEXT = True      # toggle stud text on/off
 STUD_TEXT = "CLARA"
 STUD_TEXT_FONT = "Arial"  # font name (system font) or path to .ttf file
@@ -33,24 +35,41 @@ STUD_RADIUS = STUD_DIAMETER / 2
 
 # ── General helper ───────────────────────────────────────────────────────────
 
-def fillet_above_z(part, radius, z_threshold=0.0, tolerance=0.01):
+def bevel_above_z(part, radius, z_threshold=0.0, tolerance=0.01,
+                  style="FILLET", include_bottom=False):
     """
-    Pure function, general. Fillet all edges above a Z threshold.
+    Pure function, general. Fillet or chamfer edges, optionally including bottom.
 
-    Keeps bottom edges sharp (build plate adhesion / clean base).
+    By default keeps bottom edges sharp (build plate adhesion / clean base).
+    Set include_bottom=True to bevel all edges including Z=0.
 
     Args:
-        part (Part): Solid to fillet.
-        radius (float): Fillet radius (mm).
-        z_threshold (float): Edges at or below this Z are skipped.
+        part (Part): Solid to bevel.
+        radius (float): Fillet radius or chamfer length (mm).
+        z_threshold (float): Edges at or below this Z are skipped (unless include_bottom).
         tolerance (float): Z comparison tolerance.
+        style (str): "FILLET" (rounded) or "CHAMFER" (straight 45° bevel).
+        include_bottom (bool): If True, bevel all edges including bottom.
 
     Returns:
-        Part: Filleted solid.
+        Part: Beveled solid.
 
     Examples:
-        >>> # fillet_above_z(box, 0.15) -> fillets everything except Z=0
-        >>> # fillet_above_z(box, 0.5, z_threshold=2.0) -> skip Z<=2
+        >>> # bevel_above_z(box, 0.15) -> fillets everything except Z=0
+        >>> # bevel_above_z(box, 0.15, style="CHAMFER") -> chamfers instead
+        >>> # bevel_above_z(box, 0.15, include_bottom=True) -> fillets ALL edges
     """
-    edges = [e for e in part.edges() if e.center().Z > z_threshold + tolerance]
+    if include_bottom:
+        # Include Z≈0 edges AND above-threshold edges (skip mid-range internals)
+        edges = [e for e in part.edges()
+                 if e.center().Z > z_threshold + tolerance
+                 or e.center().Z < tolerance]
+    else:
+        edges = [e for e in part.edges() if e.center().Z > z_threshold + tolerance]
+    if style == "CHAMFER":
+        return part.chamfer(radius, None, edges)
     return part.fillet(radius, edges)
+
+
+# Backwards compatibility alias
+fillet_above_z = bevel_above_z

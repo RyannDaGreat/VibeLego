@@ -2,7 +2,7 @@
 Shared panel sections and anatomy classification for brick systems.
 
 Query, general. Pure data module (no bpy or build123d imports). Provides
-the Walls, Text, and Polish section dicts shared by both LEGO and Clara
+the Walls, Text, and Fillet section dicts shared by both LEGO and Clara
 panel_def.py files, plus the anatomy highlight classification used by
 blender_watcher.py.
 
@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     WALL_THICKNESS, FLOOR_THICKNESS, CLEARANCE,
     ENABLE_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
-    FILLET_RADIUS, ENABLE_FILLET,
+    FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM,
 )
 
 
@@ -98,23 +98,39 @@ def text_section(stud_text_default):
     }
 
 
-POLISH_SECTION = {
-    "label": "Polish",
+FILLET_SECTION = {
+    "label": "Fillet",
     "icon": "MOD_SMOOTH",
     "enable_key": "enable_fillet",
     "params": [
         {
             "key": "enable_fillet", "json_key": "ENABLE_FILLET", "type": "bool",
-            "label": "Enable Fillet", "default": ENABLE_FILLET,
-            "description": "Apply edge rounding to the brick",
+            "label": "Enable", "default": ENABLE_FILLET,
+            "description": "Apply edge rounding or beveling to the brick",
+        },
+        {
+            "key": "edge_style", "json_key": "EDGE_STYLE", "type": "enum",
+            "label": "Style", "default": EDGE_STYLE,
+            "items": [
+                ("FILLET", "Rounded", "Smooth rounded edges"),
+                ("CHAMFER", "Chamfer", "Straight 45° bevel"),
+            ],
         },
         {
             "key": "fillet_radius", "json_key": "FILLET_RADIUS", "type": "float",
-            "label": "Fillet Radius", "default": FILLET_RADIUS, "min": 0.0, "max": 2.0,
+            "label": "Radius", "default": FILLET_RADIUS, "min": 0.01, "max": 2.0,
             "step": 1, "precision": 3,
+        },
+        {
+            "key": "fillet_bottom", "json_key": "FILLET_BOTTOM", "type": "bool",
+            "label": "Include Bottom", "default": False,
+            "description": "Also fillet edges at the bottom (Z=0). Off by default for 3D print bed adhesion.",
         },
     ],
 }
+
+# Backwards compatibility alias
+POLISH_SECTION = FILLET_SECTION
 
 
 # ── Anatomy highlight system ─────────────────────────────────────────────────

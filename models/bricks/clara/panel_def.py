@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from panel_common import (
-    WALLS_SECTION, text_section, POLISH_SECTION,
+    WALLS_SECTION, text_section, FILLET_SECTION,
     classify_face, ANATOMY_COLORS, ANATOMY_REGION_ITEMS, ANATOMY_REGION_GROUPS,
 )
 
@@ -168,7 +168,7 @@ SECTIONS = [
         ],
     },
     text_section("CLARA"),
-    POLISH_SECTION,
+    FILLET_SECTION,
 ]
 
 # ── Presets ──────────────────────────────────────────────────────────────────

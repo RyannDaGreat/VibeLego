@@ -10,7 +10,7 @@ wall-connected -- no floating internal features.
 and wall taper (top of outer walls slopes inward for print tolerance).
 
 Architecture: 2D sketch -> extrude (or loft for taper). Shared constants
-and fillet_above_z come from common.py.
+and bevel_above_z come from common.py.
 
 Coordinate convention: brick sits on XY plane, studs point up (+Z).
 Origin at the center-bottom of the brick body (not including studs).
@@ -32,8 +32,9 @@ from build123d import (
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
     BRICK_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
-    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, ENABLE_TEXT, STUD_TEXT,
-    STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, fillet_above_z,
+    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM, ENABLE_TEXT,
+    STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+    bevel_above_z,
 )
 
 
@@ -337,7 +338,7 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
                              align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet above cavity only -- lattice strut edges are too thin for OCCT filleter
-    result = fillet_above_z(brick.part, FILLET_RADIUS, z_threshold=cavity_z) if ENABLE_FILLET else brick.part
+    result = bevel_above_z(brick.part, FILLET_RADIUS, z_threshold=cavity_z, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM) if ENABLE_FILLET else brick.part
 
     if not ENABLE_TEXT:
         return result
@@ -498,7 +499,8 @@ def clara_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1,
     result = brick.part
     if ENABLE_FILLET:
         try:
-            result = fillet_above_z(result, FILLET_RADIUS, z_threshold=cavity_z)
+            result = bevel_above_z(result, FILLET_RADIUS, z_threshold=cavity_z,
+                                   style=EDGE_STYLE, include_bottom=FILLET_BOTTOM)
         except Exception:
             pass  # Fillet failure on slopes is a known OCCT limitation
 

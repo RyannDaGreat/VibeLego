@@ -734,40 +734,52 @@ def _build_panel_classes(sections):
         },
     )
 
-    # ── Preset operator ──
+    # ── Preset dropdown ──
     # Build json_key -> param_key lookup for applying preset overrides
     _jk_to_key = {}
     for section in sections:
         for param in section["params"]:
             _jk_to_key[param["json_key"]] = param["key"]
 
-    def execute_preset(self, context):
-        """Command, general. Apply a named preset: reset to defaults, then override."""
-        props = context.scene.build123d_props
-        # Reset to defaults first
+    def _apply_preset_by_key(preset_key):
+        """Command, general. Apply a preset by key: reset to defaults, then override."""
+        props = bpy.context.scene.build123d_props
         for key, value in _defaults.items():
             setattr(props, key, value)
-        # Apply preset overrides
         for preset in _presets:
-            if preset["key"] == self.preset_key:
+            if preset["key"] == preset_key:
                 for jk, val in preset["params"].items():
                     pk = _jk_to_key.get(jk)
                     if pk and hasattr(props, pk):
                         setattr(props, pk, val)
                 break
-        return {"FINISHED"}
 
+    def _on_preset_change(self, context):
+        """Command, general. Callback when preset dropdown changes."""
+        _apply_preset_by_key(self.active_preset)
+
+    if _presets:
+        _preset_items = [(p["key"], p["label"], p.get("description", ""))
+                         for p in _presets]
+        annotations["active_preset"] = bpy.props.EnumProperty(
+            name="Preset",
+            description="Apply a named preset configuration",
+            items=_preset_items,
+            default=_presets[0]["key"],
+            update=_on_preset_change,
+        )
+
+    # Keep PresetOp as no-op for backwards compat (unused but registered)
     PresetOp = type(
         "BUILD123D_OT_apply_preset",
         (bpy.types.Operator,),
         {
             "bl_idname": "build123d.apply_preset",
             "bl_label": "Apply Preset",
-            "bl_description": "Apply a named preset configuration",
             "__annotations__": {
                 "preset_key": bpy.props.StringProperty(),
             },
-            "execute": execute_preset,
+            "execute": lambda self, context: {"FINISHED"},
         },
     )
 
@@ -790,12 +802,10 @@ def _build_panel_classes(sections):
         """Command, general. Draw panel layout from section definitions."""
         layout = self.layout
 
-        # Preset buttons + reset
+        # Preset dropdown + reset
         if _presets:
             row = layout.row(align=True)
-            for preset in _presets:
-                op = row.operator("build123d.apply_preset", text=preset["label"])
-                op.preset_key = preset["key"]
+            row.prop(props, "active_preset", text="")
             row.operator("build123d.reset_defaults", text="", icon="LOOP_BACK")
         else:
             layout.operator("build123d.reset_defaults", icon="LOOP_BACK")

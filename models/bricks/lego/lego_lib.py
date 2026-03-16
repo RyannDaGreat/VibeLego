@@ -26,8 +26,9 @@ from build123d import (
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
     BRICK_HEIGHT, PLATE_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
-    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, ENABLE_TEXT, STUD_TEXT,
-    STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, fillet_above_z,
+    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM, ENABLE_TEXT,
+    STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+    bevel_above_z,
 )
 
 # ── LEGO-only Constants (mm) ─────────────────────────────────────────────────
@@ -98,7 +99,7 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
                          align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet, then text (text edges too fine for OCCT filleter)
-    result = fillet_above_z(brick.part, FILLET_RADIUS) if ENABLE_FILLET else brick.part
+    result = bevel_above_z(brick.part, FILLET_RADIUS, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM) if ENABLE_FILLET else brick.part
 
     if not ENABLE_TEXT:
         return result
@@ -221,7 +222,7 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
                          align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet, then text on flat studs
-    result = fillet_above_z(brick.part, FILLET_RADIUS) if ENABLE_FILLET else brick.part
+    result = bevel_above_z(brick.part, FILLET_RADIUS, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM) if ENABLE_FILLET else brick.part
 
     if flat_xy and ENABLE_TEXT:
         with BuildPart() as final:

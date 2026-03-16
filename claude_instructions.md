@@ -148,8 +148,8 @@ build123d_tests/
   models/                   # All build123d model scripts
     example_box.py          # Simple example: box with cylindrical hole
     bricks/                 # Brick systems (LEGO + Clara)
-      common.py             # Shared constants + fillet_above_z (both systems)
-      panel_common.py       # Shared panel sections (Walls, Text, Polish) + anatomy classification
+      common.py             # Shared constants + bevel_above_z (both systems)
+      panel_common.py       # Shared panel sections (Walls, Text, Fillet) + anatomy classification
       parametric_base.py    # Shared override application + worker interface (run, apply_overrides)
       lego/                 # LEGO brick system (tube-based clutch)
         lego_lib.py         # lego_brick(), lego_slope() — pure geometry
@@ -231,11 +231,11 @@ LEGO panel (Blender N-sidebar, "build123d" tab):
   ├── Walls: wall_thickness, floor_thickness, clearance
   ├── Internals: tube_outer_diameter, tube_inner_diameter, ridge_width/height
   ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
-  ├── [✓] Polish: enable_fillet, fillet_radius
+  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom
   └── [✓] Anatomy: show_anatomy, region selector dropdown
 
 Clara panel (same tab, different layout):
-  ├── Preset buttons (Mini Brick, LEGO Standard) + reset
+  ├── Preset dropdown (Mini Brick, Mini Slope, LEGO Standard) + reset
   ├── Shape: studs_x, studs_y
   ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height
   ├── Walls: wall_thickness, floor_thickness, clearance
@@ -244,7 +244,7 @@ Clara panel (same tab, different layout):
   ├── [✓] Wall Taper: enable_wall_taper, height, inset, curve (LINEAR/CURVED)
   ├── [✓] Stud Taper: enable_stud_taper, height, inset, curve (LINEAR/CURVED)
   ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
-  ├── [✓] Polish: enable_fillet, fillet_radius
+  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom
   └── [✓] Anatomy: show_anatomy, region selector dropdown
   [✓] = toggleable section (enable_key pattern, see below)
 ```
@@ -278,7 +278,7 @@ since it needs bpy callbacks), but it's display-only — not sent to the build w
 
 **Files**:
 - `build_worker.py` — general persistent worker (repo root)
-- `models/bricks/panel_common.py` — shared panel sections (Walls, Text, Polish) + anatomy
+- `models/bricks/panel_common.py` — shared panel sections (Walls, Text, Fillet) + anatomy
 - `models/bricks/parametric_base.py` — shared `apply_overrides()` + `run()` + `standalone_main()`
   - Override keys derived from `panel_def.SECTIONS` (type + json_key) — no manual override lists
 - `models/bricks/lego/panel_def.py` — LEGO sections (imports shared + adds Internals)
