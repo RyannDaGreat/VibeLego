@@ -34,18 +34,16 @@ if [[ ! -f "$SOURCE_FILE" ]]; then
     exit 1
 fi
 
-# ── Check venv ─────────────────────────────────────────────────────────────────
-
-if [[ ! -d "$VENV_DIR" ]]; then
-    echo "ERROR: Venv not found at $VENV_DIR"
-    echo "Run ./setup.sh first."
-    exit 1
-fi
+# ── Check venv (auto-setup if missing) ────────────────────────────────────────
 
 PYTHON_PATH="$VENV_DIR/bin/python3"
 if [[ ! -x "$PYTHON_PATH" ]]; then
-    echo "ERROR: Python not found in venv: $PYTHON_PATH"
-    echo "Run ./setup.sh to recreate the venv."
+    echo "Venv not found — running setup.sh..."
+    bash "$SCRIPT_DIR/setup.sh"
+fi
+
+if [[ ! -x "$PYTHON_PATH" ]]; then
+    echo "ERROR: setup.sh failed to create venv at $VENV_DIR"
     exit 1
 fi
 
