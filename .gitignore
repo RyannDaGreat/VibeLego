@@ -1,0 +1,27 @@
+
+#<RP Default Gitignore Start>
+*.pyc
+*.bak
+*.swh
+*.swi
+*.swj
+*.swk
+*.swl
+*.swm
+*.swn
+*.swo
+*.swp
+*.un~
+*.gstmp
+*.ipynb_checkpoints
+*.DS_Store
+~$*.pptx
+*.blend1
+.frenzy
+#<RP Default Gitignore End>
+
+# build123d preview
+_preview.stl
+.venv/
+__pycache__/
+.claude_logs/
