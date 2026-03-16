@@ -1,0 +1,4 @@
+[submodule "build123d"]
+	path = build123d
+	url = https://github.com/gumyr/build123d
+	branch = dev
