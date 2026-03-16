@@ -1,11 +1,11 @@
 """
-Clara brick lattice geometry tests -- pure math verification.
+Lattice geometry tests -- pure math verification.
 
 Command, specific. Verifies that the diagonal lattice strut placement
 guarantees exact stud fit (tangent contact, zero overlap).
 
 Usage:
-    python models/bricks/clara/tests/test_clara_lattice.py
+    python models/bricks/tests/test_lattice.py
 """
 import math
 import sys

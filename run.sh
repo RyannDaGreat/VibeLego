@@ -16,7 +16,7 @@ WATCHER_SCRIPT="$SCRIPT_DIR/blender_watcher.py"
 
 # ── Validate arguments ────────────────────────────────────────────────────────
 
-DEFAULT_SOURCE="$SCRIPT_DIR/models/bricks/clara/clara.py"
+DEFAULT_SOURCE="$SCRIPT_DIR/models/bricks/brick.py"
 
 if [[ $# -lt 1 ]]; then
     echo "No source specified, using default: $DEFAULT_SOURCE"
