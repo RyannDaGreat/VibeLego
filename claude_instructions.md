@@ -163,9 +163,17 @@ Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire exist
 - **`extrude(sketch, amount, mode=Mode.INTERSECT)`** — clip to an extruded profile
 - **`Compound([parts])`** — groups without boolean (vs `+` which fuses)
 
+### Cheat Sheet Highlights
+- **`Wedge(dx, dy, dz, xmin, zmin, xmax, zmax)`** — built-in slope/wedge primitive. Defines two opposing rectangular faces. Oriented differently from our slope convention (our slopes use split planes), but useful for simple wedges.
+- **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — built-in centered grid. Direct replacement for `centered_grid()`. Used as a context manager with `with GridLocations(...):`
+- **`Until.NEXT` / `Until.LAST`** — extrude until hitting the next/last face in the context. Avoids hardcoding heights when geometry constrains the extent.
+- **`Select.NEW`** — after creating geometry in a builder, select only the newly-created edges/faces for chamfer/fillet. Avoids manual edge filtering.
+- **"2D before 3D"** — official tip: sketch the entire cross-section (walls, cavities, tubes) in 2D first, then extrude once. Prevents boundary violations because all features share one outline. The official LEGO tutorial uses this approach.
+
 ### Key Documentation
 - Docs: https://build123d.readthedocs.io/en/latest/
 - Tips: https://build123d.readthedocs.io/en/latest/tips.html
+- Cheat sheet: https://build123d.readthedocs.io/en/latest/cheat_sheet.html
 - Official LEGO tutorial: https://github.com/gumyr/build123d/blob/dev/examples/lego.py
 - Boolean pitfalls: avoid coplanar faces (extend cutting tools by epsilon), avoid self-intersecting geometry
 
