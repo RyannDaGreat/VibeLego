@@ -11,10 +11,12 @@ Usage (via run.sh, not directly):
 
 import bpy
 import glob
+import json
 import os
 import shutil
 import sys
 import subprocess
+import tempfile
 import time
 
 
@@ -55,9 +57,16 @@ if UV_PATH is None:
 POLL_INTERVAL_SECONDS = 0.5
 OBJECT_NAME = "build123d_preview"
 WATCH_DIR = os.path.dirname(os.path.abspath(SOURCE_FILE))
+PANEL_STL_PATH = os.path.join(tempfile.gettempdir(), "build123d_panel_preview.stl")
+
+DEBOUNCE_SECONDS = 0.3
 
 _last_dir_mtime = 0.0
 _last_stl_mtime = 0.0
+_panel_rebuild_pending = False
+_panel_def = None          # loaded from WATCH_DIR/panel_def.py if present
+_panel_param_keys = []     # [(blender_key, json_key), ...] built at registration
+_parametric_script = None  # absolute path to the parametric build script
 
 
 # ── Scene setup ────────────────────────────────────────────────────────────────
@@ -89,6 +98,8 @@ def setup_viewport():
                     space.overlay.show_floor = True
                     space.overlay.show_axis_x = True
                     space.overlay.show_axis_y = True
+                    # Open N-sidebar
+                    space.show_region_ui = True
                     break
 
 
@@ -221,6 +232,266 @@ def run_build(source_path, stl_path):
     return True
 
 
+# ── Panel rebuild (debounced) ──────────────────────────────────────────────
+
+def panel_params_to_dict():
+    """
+    Query, general. Read all registered panel properties into a dict using
+    the key mapping built at registration time.
+
+    Returns:
+        dict: json_key → property value for each registered parameter.
+    """
+    props = bpy.context.scene.build123d_props
+    return {json_key: getattr(props, bpy_key) for bpy_key, json_key in _panel_param_keys}
+
+
+def _do_panel_rebuild():
+    """
+    Command, general. Debounce timer callback. Writes panel params to
+    a JSON temp file, runs the parametric script, and updates the mesh.
+
+    Returns:
+        None: One-shot timer (does not repeat).
+    """
+    global _panel_rebuild_pending
+    _panel_rebuild_pending = False
+
+    params = panel_params_to_dict()
+    params_path = os.path.join(tempfile.gettempdir(), "build123d_params.json")
+    with open(params_path, "w") as f:
+        json.dump(params, f)
+
+    print(f"[panel] Rebuilding with {len(params)} params...")
+
+    env = os.environ.copy()
+    env["BUILD123D_PREVIEW_STL"] = PANEL_STL_PATH
+    env["BUILD123D_PARAMS"] = params_path
+
+    result = subprocess.run(
+        [UV_PATH, "run", "--with", BUILD123D_SUBMODULE, _parametric_script],
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=os.path.dirname(_parametric_script),
+    )
+
+    if result.stdout.strip():
+        print(f"[panel] {result.stdout.strip()}")
+
+    if result.returncode != 0:
+        print(f"[panel] ERROR (exit {result.returncode}):")
+        for line in result.stderr.strip().split("\n"):
+            print(f"[panel]   {line}")
+        return None
+
+    if os.path.exists(PANEL_STL_PATH):
+        update_mesh_from_stl(PANEL_STL_PATH)
+
+    return None
+
+
+def on_param_change(self, context):
+    """
+    Command, general. Property update callback. Cancels any pending
+    rebuild timer and schedules a new one after DEBOUNCE_SECONDS.
+    """
+    global _panel_rebuild_pending
+    if _panel_rebuild_pending:
+        if bpy.app.timers.is_registered(_do_panel_rebuild):
+            bpy.app.timers.unregister(_do_panel_rebuild)
+    _panel_rebuild_pending = True
+    bpy.app.timers.register(_do_panel_rebuild, first_interval=DEBOUNCE_SECONDS)
+
+
+# ── Dynamic panel builder ────────────────────────────────────────────────
+# Reads a panel_def module (pure data: SECTIONS list + PARAMETRIC_SCRIPT)
+# and dynamically creates the Blender PropertyGroup + Panel classes.
+# No model-specific knowledge lives here.
+
+def _make_bpy_property(param):
+    """
+    Pure function, general. Convert a param dict from panel_def into a
+    bpy.props descriptor.
+
+    Args:
+        param (dict): Parameter definition with keys: type, label, default,
+            and optional min/max/step/precision/description/items.
+
+    Returns:
+        bpy.props descriptor (FloatProperty, IntProperty, or EnumProperty).
+
+    Examples:
+        >>> # _make_bpy_property({"type": "float", "label": "X", "default": 1.0, "min": 0, "max": 10})
+    """
+    ptype = param["type"]
+    kwargs = {"name": param["label"], "update": on_param_change}
+
+    if "description" in param:
+        kwargs["description"] = param["description"]
+
+    if ptype == "float":
+        kwargs["default"] = param["default"]
+        for k in ("min", "max", "step", "precision"):
+            if k in param:
+                kwargs[k] = param[k]
+        return bpy.props.FloatProperty(**kwargs)
+
+    elif ptype == "int":
+        kwargs["default"] = param["default"]
+        for k in ("min", "max"):
+            if k in param:
+                kwargs[k] = param[k]
+        return bpy.props.IntProperty(**kwargs)
+
+    elif ptype == "enum":
+        kwargs["items"] = param["items"]
+        kwargs["default"] = param["default"]
+        return bpy.props.EnumProperty(**kwargs)
+
+    raise ValueError(f"Unknown param type: {ptype!r}")
+
+
+def _build_panel_classes(sections):
+    """
+    Command, general. Dynamically create a PropertyGroup and Panel class
+    from a list of section definitions (as found in panel_def.SECTIONS).
+
+    Populates the module-level _panel_param_keys list as a side effect.
+
+    Args:
+        sections (list[dict]): Section definitions from panel_def module.
+
+    Returns:
+        tuple: (PropertyGroupClass, PanelClass) ready for bpy.utils.register_class.
+    """
+    global _panel_param_keys
+    _panel_param_keys = []
+
+    # Build PropertyGroup annotations dynamically
+    annotations = {}
+    for section in sections:
+        for param in section["params"]:
+            annotations[param["key"]] = _make_bpy_property(param)
+            _panel_param_keys.append((param["key"], param["json_key"]))
+
+    PropGroup = type(
+        "Build123dProperties",
+        (bpy.types.PropertyGroup,),
+        {"__annotations__": annotations},
+    )
+
+    # Capture sections for the draw() closure
+    _sections = sections
+
+    def draw_panel(self, context):
+        """Command, general. Draw panel layout from section definitions."""
+        layout = self.layout
+        props = context.scene.build123d_props
+
+        for section in _sections:
+            box = layout.box()
+            box.label(text=section["label"], icon=section.get("icon", "NONE"))
+
+            row_keys = {k for row in section.get("rows", []) for k in row}
+            visible_when = section.get("visible_when", {})
+            drawn_in_row = set()
+
+            for param in section["params"]:
+                key = param["key"]
+
+                # Check conditional visibility
+                if key in visible_when:
+                    cond = visible_when[key]
+                    if not all(getattr(props, ck) == cv for ck, cv in cond.items()):
+                        continue
+
+                if key in drawn_in_row:
+                    continue
+
+                # Check if this param starts a row
+                in_row = None
+                for row_group in section.get("rows", []):
+                    if key in row_group:
+                        in_row = row_group
+                        break
+
+                if in_row:
+                    row = box.row(align=True)
+                    for rk in in_row:
+                        # Check visibility for row members too
+                        if rk in visible_when:
+                            cond = visible_when[rk]
+                            if not all(getattr(props, ck) == cv for ck, cv in cond.items()):
+                                continue
+                        row.prop(props, rk)
+                        drawn_in_row.add(rk)
+                else:
+                    box.prop(props, key)
+
+    PanelClass = type(
+        "BUILD123D_PT_Panel",
+        (bpy.types.Panel,),
+        {
+            "bl_label": "build123d",
+            "bl_idname": "BUILD123D_PT_panel",
+            "bl_space_type": "VIEW_3D",
+            "bl_region_type": "UI",
+            "bl_category": "build123d",
+            "draw": draw_panel,
+        },
+    )
+
+    return PropGroup, PanelClass
+
+
+def _load_panel_def(watch_dir):
+    """
+    Query, general. Try to import panel_def.py from the given directory.
+    Uses importlib to avoid polluting sys.modules with path-dependent names.
+
+    Args:
+        watch_dir (str): Directory to look for panel_def.py in.
+
+    Returns:
+        module or None: The loaded panel_def module, or None if not found.
+    """
+    panel_def_path = os.path.join(watch_dir, "panel_def.py")
+    if not os.path.exists(panel_def_path):
+        return None
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("panel_def", panel_def_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def register_panel():
+    """
+    Command, general. Discover panel_def.py in the watched directory,
+    dynamically build and register the PropertyGroup + Panel. If no
+    panel_def.py exists, the panel is simply not created (file watcher
+    still works).
+    """
+    global _panel_def, _parametric_script
+
+    _panel_def = _load_panel_def(WATCH_DIR)
+    if _panel_def is None:
+        print("[panel] No panel_def.py in watch dir — panel disabled")
+        return
+
+    _parametric_script = os.path.join(WATCH_DIR, _panel_def.PARAMETRIC_SCRIPT)
+    if not os.path.exists(_parametric_script):
+        print(f"[panel] WARNING: parametric script not found: {_parametric_script}")
+
+    prop_cls, panel_cls = _build_panel_classes(_panel_def.SECTIONS)
+    bpy.utils.register_class(prop_cls)
+    bpy.utils.register_class(panel_cls)
+    bpy.types.Scene.build123d_props = bpy.props.PointerProperty(type=prop_cls)
+    print(f"[panel] Registered panel with {len(_panel_param_keys)} params from {WATCH_DIR}/panel_def.py")
+
+
 # ── File watcher ───────────────────────────────────────────────────────────────
 
 def get_dir_mtime():
@@ -292,6 +563,7 @@ def main():
 
     clear_default_scene()
     setup_viewport()
+    register_panel()
 
     # Register watcher FIRST — so it runs even if initial build has issues
     bpy.app.timers.register(poll_source_file, first_interval=POLL_INTERVAL_SECONDS, persistent=True)
