@@ -12,7 +12,7 @@ Origin at the center-bottom of the brick body (not including studs).
 from build123d import (
     Box, Cylinder, Location, Pos, Part,
     Align, Axis, Mode,
-    BuildPart, Add, Locations, GridLocations,
+    BuildPart, add, Locations, GridLocations,
 )
 import math
 
@@ -249,15 +249,15 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
         >>> # lego_brick(2, 2, PLATE_HEIGHT) -> 2x2 plate
     """
     with BuildPart() as brick:
-        Add(lego_brick_body(studs_x, studs_y, height))
-        Add(lego_studs(studs_x, studs_y, z_offset=height))
+        add(lego_brick_body(studs_x, studs_y, height))
+        add(lego_studs(studs_x, studs_y, z_offset=height))
 
         tubes = lego_bottom_tubes(studs_x, studs_y, height)
         if tubes is not None:
-            Add(tubes)
+            add(tubes)
 
         ridge = lego_bottom_ridge(studs_x, studs_y, height)
         if ridge is not None:
-            Add(ridge)
+            add(ridge)
 
     return brick.part
