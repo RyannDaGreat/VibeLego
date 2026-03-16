@@ -43,17 +43,25 @@ def _build(params):
     Pure function, specific. Build a Clara brick from params dict.
 
     Args:
-        params (dict): Must include "studs_x", "studs_y".
+        params (dict): Must include "studs_x", "studs_y". Optional:
+            "corner_radius", "taper_height", "taper_inset" for 3D printing.
 
     Returns:
         Part: The built Clara brick geometry.
 
     Examples:
         >>> # _build({"studs_x": 2, "studs_y": 4})
+        >>> # _build({"studs_x": 2, "studs_y": 4, "corner_radius": 1.5})
     """
     studs_x = int(params.get("studs_x", 2))
     studs_y = int(params.get("studs_y", 4))
-    return clara_lib.clara_brick(studs_x, studs_y)
+    corner_radius = float(params.get("corner_radius", 0))
+    taper_height = float(params.get("taper_height", 0))
+    taper_inset = float(params.get("taper_inset", 0))
+    return clara_lib.clara_brick(studs_x, studs_y,
+                                  corner_radius=corner_radius,
+                                  taper_height=taper_height,
+                                  taper_inset=taper_inset)
 
 
 def run(params, stl_path):

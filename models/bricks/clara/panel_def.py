@@ -5,6 +5,7 @@ Query, specific. Pure data module (no bpy imports, no build123d imports).
 Consumed by blender_watcher.py's generic panel builder.
 
 Clara-specific: NO tube/ridge internal params. Only lattice brick type.
+Includes 3D printing features (corner radius, wall taper).
 Shared sections (Walls, Text, Polish) imported from panel_common.py.
 """
 
@@ -37,14 +38,14 @@ SECTIONS = [
         "rows": [["studs_x", "studs_y"]],
     },
     {
-        "label": "Dimensions",
+        "label": "Studs & Body",
         "icon": "ARROW_LEFTRIGHT",
         "params": [
             {
                 "key": "pitch", "json_key": "PITCH", "type": "float",
-                "label": "Pitch", "default": 8.0, "min": 1.0, "max": 20.0,
+                "label": "Stud Spacing", "default": 8.0, "min": 1.0, "max": 20.0,
                 "step": 10, "precision": 2,
-                "description": "Stud center-to-center (mm)",
+                "description": "Distance between stud centers (mm)",
             },
             {
                 "key": "stud_diameter", "json_key": "STUD_DIAMETER", "type": "float",
@@ -64,6 +65,30 @@ SECTIONS = [
         ],
     },
     WALLS_SECTION,
+    {
+        "label": "3D Printing",
+        "icon": "MOD_BEVEL",
+        "params": [
+            {
+                "key": "corner_radius", "json_key": "corner_radius", "type": "float",
+                "label": "Corner Radius", "default": 0.0, "min": 0.0, "max": 4.0,
+                "step": 10, "precision": 2,
+                "description": "2D corner rounding of brick outline (like CSS border-radius)",
+            },
+            {
+                "key": "taper_height", "json_key": "taper_height", "type": "float",
+                "label": "Taper Height", "default": 0.0, "min": 0.0, "max": 5.0,
+                "step": 10, "precision": 2,
+                "description": "How far down from top the wall taper begins (mm)",
+            },
+            {
+                "key": "taper_inset", "json_key": "taper_inset", "type": "float",
+                "label": "Taper Inset", "default": 0.0, "min": 0.0, "max": 2.0,
+                "step": 10, "precision": 2,
+                "description": "How far walls narrow at the top (mm per side)",
+            },
+        ],
+    },
     text_section("CLARA"),
     POLISH_SECTION,
 ]

@@ -53,14 +53,14 @@ SECTIONS = [
         "visible_when": {"flat_rows": {"brick_type": "SLOPE"}},
     },
     {
-        "label": "Dimensions",
+        "label": "Studs & Body",
         "icon": "ARROW_LEFTRIGHT",
         "params": [
             {
                 "key": "pitch", "json_key": "PITCH", "type": "float",
-                "label": "Pitch", "default": 8.0, "min": 1.0, "max": 20.0,
+                "label": "Stud Spacing", "default": 8.0, "min": 1.0, "max": 20.0,
                 "step": 10, "precision": 2,
-                "description": "Stud center-to-center (mm)",
+                "description": "Distance between stud centers (mm)",
             },
             {
                 "key": "stud_diameter", "json_key": "STUD_DIAMETER", "type": "float",

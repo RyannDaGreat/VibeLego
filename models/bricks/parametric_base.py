@@ -22,9 +22,10 @@ def apply_overrides(params, common_mod, lib_mod, sections,
     """
     Command, general. Patch common + lib module constants from params.
 
-    Override keys are derived from panel_def.SECTIONS by type + json_key.
-    Enum and int params (shape selectors like brick_type, studs_x) are
-    skipped -- they control build logic, not module constants.
+    Override keys are derived from panel_def.SECTIONS by json_key case convention:
+    UPPERCASE json_keys (PITCH, STUD_DIAMETER) are module constants to patch,
+    lowercase json_keys (studs_x, corner_radius) are shape params read directly
+    in _build(). Enum types are also skipped (no cast function).
 
     Args:
         params (dict): Key-value pairs from panel sliders.
@@ -44,11 +45,12 @@ def apply_overrides(params, common_mod, lib_mod, sections,
             jk = param["json_key"]
             if jk not in params:
                 continue
+            # Only patch module constants (UPPERCASE json_keys like PITCH)
+            # Shape params (lowercase: studs_x, corner_radius) read in _build()
+            if not jk[0].isupper():
+                continue
             cast = _TYPE_CASTERS.get(param["type"])
             if cast is None:
-                continue
-            # Skip int params (shape selectors like studs_x, studs_y)
-            if param["type"] == "int":
                 continue
             val = cast(params[jk])
             setattr(common_mod, jk, val)

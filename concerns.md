@@ -349,3 +349,62 @@ at any Z through the bottom is one contiguous region.
 - **No infrastructure changes needed**: `blender_watcher.py` discovers `panel_def.py` dynamically from `WATCH_DIR = os.path.dirname(SOURCE_FILE)`, so it works with any directory. `build_worker.py` loads parametric module from argv path. `run.sh` and `render.sh` take any source path.
 - **Verified**: Clara lattice tests (7/7 pass), LEGO brick build (541 faces), Clara brick build (613 faces), convenience scripts, parametric entry points all work.
 - **DRY concern noted**: JSON key names are listed in both `panel_def.py` SECTIONS and `parametric.py` OVERRIDABLE_CONSTANTS — 15 constant names duplicated. Future improvement: derive OVERRIDABLE_CONSTANTS from SECTIONS data.
+
+## 2026-03-16: Post-Frenzy Refactoring (10-task plan)
+
+### Fresh frenzy code review (10 agents, cold context)
+Launched 10 agents with no prior context to review the codebase from different angles.
+Key findings:
+- **Bug**: LEGO stud text default was "CLARA" (copypasta from Clara panel_def)
+- **DRY violations**: 7 found. COMMON_FLOAT/STRING/BOOL_OVERRIDES identical in both parametric.py. Walls/Text/Polish panel sections identical. run() function identical. __main__ block nearly identical.
+- **Anatomy misplacement**: _classify_face(), ANATOMY_COLORS, ANATOMY_REGION_ITEMS hardcoded in blender_watcher.py — should be model-defined
+- **Dead imports**: 8 unused imports across 3 files (Rot, Rectangle, Kind in lego_lib; Circle, Kind, Keep, PLATE_HEIGHT in clara_lib; mathutils in _classify_face)
+- **Material boilerplate**: _setup_anatomy_material and _setup_default_material shared 12 lines of get-or-create/clear/assign logic
+- **Race condition**: Debounced panel rebuild timer not canceled when file-watcher triggers its own rebuild — could cause double builds or stale params
+- **Convenience scripts**: 10 NxM scripts (brick_1x1.py, brick_2x4.py, etc.) were 5-line duplicates of lego.py/clara.py with different dimensions — all functionality available via panel sliders
+
+### Refactoring executed (10 tasks)
+1. **Fixed LEGO stud text default**: "CLARA" -> "LEGO" in panel_def.py
+2. **Removed dead imports**: 8 imports across lego_lib.py and clara_lib.py
+3. **Extracted `_get_3d_space()` helper**: Replaced 3 repeated VIEW_3D traversal loops in blender_watcher.py
+4. **Extracted `_setup_material()` scaffold**: Shared material boilerplate (get-or-create, clear nodes, assign to object). `_setup_anatomy_material` and `_setup_default_material` are now thin wrappers.
+5. **Fixed debounce race condition**: `poll_source_file()` now cancels pending panel rebuild timer before doing file-change rebuild. Clears `_panel_rebuild_pending` flag.
+6. **Created `panel_common.py`**: Shared Walls, Text (with configurable stud_text default), Polish sections. Also hosts anatomy classification (`classify_face`, `ANATOMY_COLORS`, `ANATOMY_REGION_ITEMS`).
+7. **Moved anatomy to panel_def**: Each panel_def.py imports from panel_common. blender_watcher.py reads anatomy data via `getattr(panel_def, 'classify_face', None)` — gated on availability. No hardcoded anatomy in watcher.
+8. **Created `parametric_base.py`**: Shared `apply_overrides()` derives override keys from SECTIONS (no more manual COMMON_FLOAT/STRING/BOOL_OVERRIDES lists). Shared `run()` and `standalone_main()`. Each parametric.py is now a thin wrapper: `_build()` + system-specific config.
+9. **Deleted 10 convenience scripts**: brick_1x1.py through slope_2x2.py and clara_2x4.py. All sizes accessible via panel sliders or parametric.py with JSON params.
+10. **Updated manifest**: File structure, anatomy architecture, parametric architecture sections.
+
+### Verification
+- Clara lattice tests: 7/7 pass
+- LEGO parametric build: 541 faces (default 2x4)
+- Clara parametric build: 613 faces (default 2x4)
+- LEGO main entry point (lego.py): 541 faces
+- Clara main entry point (clara.py): 613 faces
+- LEGO collection: 11 parts
+- Custom params (LEGO slope no fillet): 144 faces
+- Custom params (Clara 1x1 no fillet): 90 faces
+
+## 2026-03-16: Clara 3D Printing Features
+
+### Features added
+1. **Corner radius** (`corner_radius`): 2D rounding of outer brick outline via `fillet(sk.vertices(), r)` in BuildSketch. Inner cavity stays sharp (stronger corners). Clamped to `min(cr, outer_x/2 - 0.01, outer_y/2 - 0.01)`.
+2. **Wall taper** (`taper_height` + `taper_inset`): 3-profile loft — bottom (Z=0) → same at taper start (Z=height-taper_height) → inset at top (Z=height). `loft(ruled=True)` for linear interpolation. Both features compose correctly.
+3. **Panel section rename**: "Dimensions" → "Studs & Body", "Pitch" → "Stud Spacing" in both panel_def.py files.
+4. **Override convention fix**: `parametric_base.py` now uses UPPERCASE/lowercase json_key convention instead of type-based int skip, so new lowercase shape params (corner_radius, taper_height, taper_inset) aren't erroneously patched as module constants.
+
+### Approach decisions
+- **Sharp cavity with rounded outer**: Intentional. Thicker corners = stronger for 3D printing. Lattice clip to rounded rect would also be complex (Mode.INTERSECT on a rounded shape).
+- **3-branch shell construction**: `has_taper` → loft, `cr > 0` → rounded rect extrude, else → Box. Each branch is the minimum complexity for its case. Default (no taper, no radius) uses the fastest Box path.
+- **API verification first**: Ran scratchpad tests confirming `fillet(sk.vertices(), r)` and `loft(ruled=True)` with 3 profiles work correctly before writing the implementation.
+
+### Pre-existing issue noted
+- LEGO slope 2x4 with `ENABLE_FILLET=True` fails: "Failed creating a fillet with radius of 0.15". Confirmed pre-existing by testing `lego_slope(2, 4)` directly — not caused by any refactoring. Works with `ENABLE_FILLET=False` (144 faces).
+
+### Verification
+- Clara default (no taper/radius): 613 faces ✓
+- Clara corner_radius=1.5: 621 faces ✓
+- Clara taper_height=2, taper_inset=0.3: 617 faces ✓
+- Clara both combined: 629 faces ✓
+- Clara lattice tests: 7/7 ✓
+- LEGO default: 541 faces (unchanged) ✓
