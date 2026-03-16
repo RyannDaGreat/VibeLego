@@ -36,6 +36,43 @@ comments, and conversation for precision.
 | Thin rail (1-wide bricks) | **Ridge** | Bottom grip rail for 1-wide standard bricks |
 | Rounded edges | **Fillets** | Small radius on shell/stud edges (not on lattice) |
 
+## Anatomy Highlight System (Blender viewport)
+
+**Requirement**: Any brick model displayed in Blender must support a toggle that
+colors each mesh face by anatomical region. This teaches users brick vocabulary
+and helps debug geometry issues. The system is **generic** — it works on any
+brick mesh (LEGO, Clara, future systems) by classifying faces using geometric
+position and surface normal relative to the brick's parametric bounds.
+
+**Panel controls** (in the "Anatomy" section, below parametric sections):
+- **Show Anatomy Colors** checkbox — toggles coloring on/off, switches viewport
+  shading between MATERIAL (colors visible) and SOLID (matcap)
+- **Region** dropdown — "All Regions" colors everything; selecting a specific
+  region (e.g. "Studs") highlights only that region and grays out the rest
+
+**Regions and colors**:
+| Region | Color | Classification rule |
+|--------|-------|---------------------|
+| Studs | Red | Face center Z > brick top |
+| Logo | Gold | Face center Z > stud tops (text extrusion) |
+| Deck | Green | Horizontal upward face at Z ≈ brick height |
+| Walls | Blue | Face on outer perimeter, between Z=0 and top |
+| Internals | Purple | Face inside cavity bounds (tubes, lattice, ridges) |
+| Base | Gray | Horizontal downward face at Z ≈ 0 |
+| Fillets/Other | Light gray | Unclassified (fillet transitions, etc.) |
+
+**Implementation** (all in `blender_watcher.py`, not in model code):
+- `_classify_face(mesh, poly, params)` — pure function, classifies by center/normal vs geometric bounds
+- `_apply_anatomy_colors(obj, params, highlight_region)` — FLOAT_COLOR attribute on CORNER domain
+- `_setup_anatomy_material(obj)` — ShaderNodeAttribute → Principled BSDF
+- Colors auto-reapply after every mesh rebuild (slider change, file change)
+
+**Design principle**: The anatomy system is a **Blender-side display feature**.
+It does not touch the build pipeline (no changes to lego_lib, clara_lib, or
+parametric.py). Any future brick system automatically gets anatomy highlighting
+as long as it follows the standard coordinate convention (origin at center-bottom,
+studs up +Z) and provides studs_x, studs_y, and dimension params.
+
 ## Architecture
 
 ### Chosen Approach: Subprocess + STL + File Watcher
@@ -50,7 +87,7 @@ run.sh <model.py>
        |
        +-- On source file change (mtime):
             |
-            1. Run model.py via subprocess (system Python in venv)
+            1. Run model.py via `uv run` subprocess (system Python, not Blender's)
             2. model.py exports STL to _preview.stl
             3. Blender detects new STL, imports it
             4. mesh.clear_geometry() + mesh.from_pydata() on existing object
@@ -86,53 +123,120 @@ run.sh <model.py>
 
 ```
 build123d_tests/
-  run.sh                    # Entry point: ./run.sh models/lego/brick_2x4.py
+  run.sh                    # Entry point: ./run.sh models/bricks/lego/lego.py
   blender_watcher.py        # Blender-side script (watches + reimports)
   render_preview.py         # Headless Blender render: STL -> multi-angle PNGs
   render.sh                 # Convenience wrapper for render_preview.py
+  build_worker.py           # Persistent build subprocess (keeps build123d imported)
   models/                   # All build123d model scripts
     example_box.py          # Simple example: box with cylindrical hole
-    lego/                   # Anatomically correct Clara brick collection
-      lego_lib.py           # Shared brick geometry (pure functions, general)
-      brick_2x4.py          # Classic 2x4 brick
-      brick_2x2.py          # 2x2 brick
-      brick_1x1.py          # 1x1 brick
-      brick_1x2.py          # 1x2 brick with ridge rail
-      brick_1x4.py          # 1x4 brick with ridge rail
-      brick_2x3.py          # 2x3 brick
-      plate_1x1.py          # 1x1 plate (1/3 height)
-      plate_2x4.py          # 2x4 plate
-      slope_2x2.py          # 2x2 slope brick (45-degree)
-      clara_2x4.py          # Clara brick (diagonal lattice clutch)
-      collection.py         # All brick types in display grid
-      tests/                # Geometry math verification
-        test_clara_lattice.py  # Lattice tangent/overlap/symmetry tests
+    bricks/                 # Brick systems (LEGO + Clara)
+      common.py             # Shared constants + fillet_above_z (both systems)
+      lego/                 # LEGO brick system (tube-based clutch)
+        lego_lib.py         # lego_brick(), lego_slope() — pure geometry
+        lego.py             # Default entry point for ./run.sh
+        parametric.py       # Worker interface: run(params, stl_path)
+        panel_def.py        # LEGO panel params (with tube/ridge internals)
+        brick_2x4.py        # Convenience: classic 2x4 brick
+        brick_2x2.py        # Convenience: 2x2 brick
+        brick_1x1.py        # Convenience: 1x1 brick
+        brick_1x2.py        # Convenience: 1x2 brick with ridge
+        brick_1x4.py        # Convenience: 1x4 brick with ridge
+        brick_2x3.py        # Convenience: 2x3 brick
+        plate_1x1.py        # Convenience: 1x1 plate
+        plate_2x4.py        # Convenience: 2x4 plate
+        slope_2x2.py        # Convenience: 2x2 slope
+        collection.py       # All LEGO types in display grid
+      clara/                # Clara brick system (diagonal lattice clutch)
+        clara_lib.py        # clara_brick() — pure geometry
+        clara.py            # Default entry point for ./run.sh
+        parametric.py       # Worker interface: run(params, stl_path)
+        panel_def.py        # Clara panel params (no tube/ridge internals)
+        clara_2x4.py        # Convenience: 2x4 Clara brick
+        tests/              # Geometry math verification
+          test_clara_lattice.py  # Lattice tangent/overlap/symmetry tests
   renders/                  # Multi-angle render output (gitignored)
   docs/                     # Reports and documentation
     architecture.html       # Architecture plan + alternatives report
   build123d/                # build123d source (git submodule, dev branch)
-  build_worker.py             # Persistent build subprocess (keeps build123d imported)
-  CLAUDE.md                   # Local Claude instructions (VLM verification rule)
-  claude_instructions.md      # This file
-  concerns.md                 # Research log + lessons learned
-  .claude_todo.md             # Task tracking
+  CLAUDE.md                 # Local Claude instructions (VLM verification rule)
+  claude_instructions.md    # This file
+  concerns.md               # Research log + lessons learned
+  .claude_todo.md           # Task tracking
 ```
+
+### Why LEGO and Clara are separate directories
+
+LEGO and Clara are different brick systems with different clutch mechanisms:
+- LEGO uses **cylindrical tubes** (anti-stud tubes + ridges) for underside grip
+- Clara uses a **diagonal lattice** (±45° crisscross struts) for underside grip
+
+They share shell geometry, stud dimensions, and fillet logic (in `common.py`),
+but their internal structures are fundamentally different. Mixing them in one
+directory caused confusion: launching with a Clara script but getting LEGO
+tubes when changing size, tube-related sliders appearing for Clara, etc.
+
+### Why panel_def.py and parametric.py are separate files
+
+Process boundary. They run in **different processes**:
+- `panel_def.py` is imported by Blender's Python (no build123d available)
+- `parametric.py` runs in a `build_worker.py` subprocess under `uv run` (with build123d)
+
+Merging would require all build123d imports to be behind lazy-import guards
+to avoid crashing Blender's Python.
+
+### panel_def.py SECTIONS as Single Source of Truth (DRY principle)
+
+The `SECTIONS` list in each `panel_def.py` is the **single source of truth**
+for all parametric inputs — parameter names, types, defaults, min/max ranges,
+and descriptions. Every consumer that needs to present or accept these
+parameters must read from SECTIONS, not maintain its own copy:
+
+```
+panel_def.py (SECTIONS data)  ←  single source of truth
+    ↓
+    ├── Blender panel  (blender_watcher.py reads SECTIONS → PropertyGroup)
+    ├── CLI            (reads SECTIONS → auto-generated CLI args)
+    ├── Web UI         (reads SECTIONS → auto-generated form fields)
+    └── Python API     (reads SECTIONS → function kwargs with defaults)
+```
+
+**Rules:**
+- Never duplicate parameter names, types, or ranges in a second location.
+  If you need a list of overridable constants, derive it from SECTIONS data.
+- New parameters are added in ONE place (SECTIONS) and automatically appear
+  in all consumers.
+- Each consumer is a thin adapter — it reads the SECTIONS structure and
+  generates its own interface. The adapter contains no domain knowledge
+  about what the parameters mean.
 
 ### Interactive Parameter Panel
 
 **Philosophy**: Sliders are for exploration. Permanent changes go through Claude editing code.
 
 ```
-Blender N-sidebar ("build123d" tab)
+LEGO panel (Blender N-sidebar, "build123d" tab):
   ├── Reset to Defaults button
-  ├── Shape: brick_type (enum), studs_x, studs_y, flat_rows
+  ├── Shape: brick_type (BRICK/PLATE/SLOPE), studs_x, studs_y, flat_rows
   ├── Dimensions: pitch, stud_diameter, stud_height, brick_height, plate_height
   ├── Walls: wall_thickness, floor_thickness, clearance
   ├── Internals: tube_outer_diameter, tube_inner_diameter, ridge_width/height
-  └── Polish: fillet_radius, stud_text_font_size, stud_text_height
+  ├── Text: stud_text, stud_text_font, stud_text_font_size, stud_text_height
+  ├── Polish: enable_fillet (checkbox), fillet_radius
+  └── Anatomy: show_anatomy (checkbox), region selector dropdown
+
+Clara panel (same tab, different layout):
+  ├── Reset to Defaults button
+  ├── Shape: studs_x, studs_y (no brick_type enum — always lattice)
+  ├── Dimensions: pitch, stud_diameter, stud_height, brick_height (no plate_height)
+  ├── Walls: wall_thickness, floor_thickness, clearance
+  ├── Text: stud_text, stud_text_font, stud_text_font_size, stud_text_height
+  ├── Polish: enable_fillet (checkbox), fillet_radius
+  └── Anatomy: show_anatomy (checkbox), region selector dropdown
+  (no Internals section — Clara has no tubes or ridges)
 ```
 
-**Architecture**: Panel definitions are data-driven. Model-specific params live in `models/<type>/panel_def.py` (pure data, no bpy). General panel infrastructure in `blender_watcher.py` dynamically builds Blender PropertyGroup + Panel from any `panel_def.py` found in the watched directory.
+**Architecture**: Panel definitions are data-driven. Model-specific params live in `models/bricks/<system>/panel_def.py` (pure data, no bpy). General panel infrastructure in `blender_watcher.py` dynamically builds Blender PropertyGroup + Panel from any `panel_def.py` found in the watched directory.
 
 **Persistent worker** (`build_worker.py`): Keeps build123d imported across slider changes. Spawned as a child process of Blender (stdin/stdout pipes, not sockets). Eliminates the 1.3s import cost per rebuild — steady-state ~0.9s vs ~2.5s without worker.
 
@@ -143,8 +247,10 @@ Blender N-sidebar ("build123d" tab)
 
 **Files**:
 - `build_worker.py` — general persistent worker (repo root)
-- `models/lego/panel_def.py` — lego-specific parameter definitions + layout
-- `models/lego/parametric.py` — lego-specific build entry point (exposes `run(params, stl_path)`)
+- `models/bricks/lego/panel_def.py` — LEGO parameter definitions + layout (includes tube/ridge)
+- `models/bricks/lego/parametric.py` — LEGO build entry point (exposes `run(params, stl_path)`)
+- `models/bricks/clara/panel_def.py` — Clara parameter definitions (no tube/ridge internals)
+- `models/bricks/clara/parametric.py` — Clara build entry point (exposes `run(params, stl_path)`)
 
 ## Clara Brick Features
 
@@ -180,13 +286,13 @@ Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a diff
 - −45° strut at c: center at `(c/2, c/2)`, rotated −45°. Line: `y + x = c`
 - Diamond inscribed circle radius = `PITCH/(2√2) − t/2 = STUD_DIAMETER/2` (proven algebraically)
 
-**Implementation** (`clara_brick()` in `lego_lib.py`):
+**Implementation** (`clara_brick()` in `models/bricks/clara/clara_lib.py`):
 1. Shell: solid outer box − cavity (same as `lego_brick`)
 2. Lattice: 2D sketch with `Locations([Pos * Rot])` context managers (NOT algebra `Pos * Rot * Shape` which silently fails in sketches), clipped with `Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)`, extruded to `cavity_z`
 3. Fillet threshold = `cavity_z` (not 0) — lattice strut edges are too thin for OCCT filleter
 4. Studs, text — same as `lego_brick`
 
-**Tests**: `models/lego/tests/test_clara_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
+**Tests**: `models/bricks/clara/tests/test_clara_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
 
 ### Slope Bricks
 - `lego_slope(studs_x, studs_y, height, flat_rows)`: creates wedge/slope bricks
@@ -212,11 +318,22 @@ Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a diff
 - 1024×1024 PNG output to `renders/` directory
 - Claude reads PNGs via Read tool for visual verification
 
-### lego_lib.py Architecture (2D sketch → extrude)
-- **4 functions total**: `fillet_above_z()` (general), `lego_brick()`, `clara_brick()`, `lego_slope()`
-- Standard bricks: 2D sketch (walls via `offset()` + tubes via `GridLocations` circles) → `extrude` → ceiling `Box` → ridge (if 1-wide) → studs → fillet → text
-- Slopes: shell construction (solid outer `Box` → `split` slope → subtract trimmed cavity) + tube sketch → extrude → clip via `&` → studs → fillet → text
+### Geometry Library Architecture (2D sketch -> extrude)
+
+Shared code in `models/bricks/common.py`:
 - `fillet_above_z(part, radius, z_threshold)` — fillet edges above a Z plane
+- All shared constants: PITCH, STUD_DIAMETER, STUD_HEIGHT, BRICK_HEIGHT, etc.
+
+LEGO system (`models/bricks/lego/lego_lib.py`):
+- `lego_brick()`, `lego_slope()` — import shared constants from common.py
+- LEGO-only constants: TUBE_OUTER_DIAMETER, TUBE_INNER_DIAMETER, RIDGE_WIDTH, RIDGE_HEIGHT
+- Standard bricks: 2D sketch (walls + tubes via `GridLocations` circles) -> extrude -> ceiling -> ridge -> studs -> fillet -> text
+- Slopes: solid outer `Box` -> `split` slope -> subtract trimmed cavity -> tubes (sketch -> extrude -> `& sloped_cavity`) -> studs -> fillet -> text
+
+Clara system (`models/bricks/clara/clara_lib.py`):
+- `clara_brick()` — import shared constants from common.py
+- No LEGO-specific constants (no tubes/ridges)
+- Lattice: 2D sketch with `Locations([Pos * Rot])` for +/-45 deg struts, clipped with `Mode.INTERSECT` -> extrude to cavity_z
 
 ## build123d API Quick Reference (for Claude)
 
@@ -248,7 +365,7 @@ Never construct two shapes that share an entire planar face and then boolean-uni
 
 ### Built-in Features Used in lego_lib.py
 - **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — centered grid positioning (replaces manual centered_grid function). No Z offset — use `Plane.XY.offset(z)` on the BuildSketch instead.
-- **`offset(shape, amount, kind=Kind.INTERSECTION)`** — in 2D sketch: shrinks a rectangle to create wall profile. `Kind.INTERSECTION` = sharp corners, `Kind.ARC` = rounded.
+- **`offset(shape, amount, kind=Kind.INTERSECTION)`** — in 2D sketch: shrinks a rectangle to create wall profile. `Kind.INTERSECTION` = sharp corners, `Kind.ARC` = rounded. (Not currently used in lego_lib — shell is built via outer box minus cavity instead. Kept here as reference for future use.)
 - **`Pos(x,y,z) * Shape`** — position a shape at a location inside BuildPart. Cleaner than `Locations` for single positions.
 - **`Compound([parts])`** — groups without boolean (vs `+` which fuses)
 

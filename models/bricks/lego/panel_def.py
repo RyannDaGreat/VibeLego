@@ -1,26 +1,22 @@
 """
-Lego brick panel definition — parameter declarations for Blender sidebar.
+LEGO brick panel definition -- parameter declarations for Blender sidebar.
 
 Query, specific. Pure data module (no bpy imports). Declares all parametric
-brick dimensions, their ranges, and panel layout sections. Consumed by
+LEGO brick dimensions, their ranges, and panel layout sections. Consumed by
 blender_watcher.py's generic panel builder.
 
-Each param dict:
-    key:         Blender property name (snake_case)
-    json_key:    Key in the JSON params file sent to parametric.py
-    type:        "float", "int", or "enum"
-    label:       Display name in panel
-    default:     Default value
-    min, max:    Range limits
-    step:        Slider step (Blender convention: 10 = 1.0 for floats)
-    precision:   Decimal places (floats only)
-    description: Tooltip text
-    items:       List of (value, label, description) tuples (enums only)
-
-Layout hints (optional per-section):
-    rows:         List of [key, key, ...] to put on one row
-    visible_when: Dict of {key: {condition_key: value}} — conditional visibility
+LEGO-specific: includes tube/ridge internal params, brick/plate/slope types.
+Shared sections (Walls, Text, Polish) imported from panel_common.py.
 """
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from panel_common import (
+    WALLS_SECTION, text_section, POLISH_SECTION,
+    classify_face, ANATOMY_COLORS, ANATOMY_REGION_ITEMS,
+)
 
 # Relative to this file's directory
 PARAMETRIC_SCRIPT = "parametric.py"
@@ -37,7 +33,6 @@ SECTIONS = [
                     ("BRICK", "Brick", "Standard brick height"),
                     ("PLATE", "Plate", "1/3 brick height"),
                     ("SLOPE", "Slope", "Slope/wedge brick"),
-                    ("CLARA", "Clara", "Diagonal lattice clutch"),
                 ],
             },
             {
@@ -89,27 +84,7 @@ SECTIONS = [
             },
         ],
     },
-    {
-        "label": "Walls",
-        "icon": "MOD_SOLIDIFY",
-        "params": [
-            {
-                "key": "wall_thickness", "json_key": "WALL_THICKNESS", "type": "float",
-                "label": "Wall Thickness", "default": 1.5, "min": 0.3, "max": 5.0,
-                "step": 10, "precision": 2,
-            },
-            {
-                "key": "floor_thickness", "json_key": "FLOOR_THICKNESS", "type": "float",
-                "label": "Floor Thickness", "default": 1.0, "min": 0.2, "max": 5.0,
-                "step": 10, "precision": 2,
-            },
-            {
-                "key": "clearance", "json_key": "CLEARANCE", "type": "float",
-                "label": "Clearance", "default": 0.1, "min": 0.0, "max": 1.0,
-                "step": 1, "precision": 3,
-            },
-        ],
-    },
+    WALLS_SECTION,
     {
         "label": "Internals",
         "icon": "MESH_CYLINDER",
@@ -136,25 +111,6 @@ SECTIONS = [
             },
         ],
     },
-    {
-        "label": "Polish",
-        "icon": "MOD_SMOOTH",
-        "params": [
-            {
-                "key": "fillet_radius", "json_key": "FILLET_RADIUS", "type": "float",
-                "label": "Fillet Radius", "default": 0.15, "min": 0.0, "max": 2.0,
-                "step": 1, "precision": 3,
-            },
-            {
-                "key": "stud_text_font_size", "json_key": "STUD_TEXT_FONT_SIZE",
-                "type": "float", "label": "Text Size",
-                "default": 1.0, "min": 0.1, "max": 5.0, "step": 10, "precision": 2,
-            },
-            {
-                "key": "stud_text_height", "json_key": "STUD_TEXT_HEIGHT",
-                "type": "float", "label": "Text Height",
-                "default": 0.1, "min": 0.01, "max": 1.0, "step": 1, "precision": 3,
-            },
-        ],
-    },
+    text_section("LEGO"),
+    POLISH_SECTION,
 ]

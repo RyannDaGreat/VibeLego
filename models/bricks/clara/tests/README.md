@@ -12,7 +12,7 @@ algebraically across all brick sizes.
 ## Running
 
 ```bash
-python models/lego/tests/test_clara_lattice.py
+python models/bricks/clara/tests/test_clara_lattice.py
 ```
 
 No build123d dependency needed — pure math only.

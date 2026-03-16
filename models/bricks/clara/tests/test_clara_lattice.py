@@ -1,18 +1,18 @@
 """
-Clara brick lattice geometry tests — pure math verification.
+Clara brick lattice geometry tests -- pure math verification.
 
 Command, specific. Verifies that the diagonal lattice strut placement
 guarantees exact stud fit (tangent contact, zero overlap).
 
 Usage:
-    python models/lego/tests/test_clara_lattice.py
+    python models/bricks/clara/tests/test_clara_lattice.py
 """
 import math
 import sys
 
 TOLERANCE = 1e-9
 
-# ── Constants (must match lego_lib.py) ────────────────────────────────────────
+# ── Constants (must match common.py) ─────────────────────────────────────────
 
 PITCH = 8.0
 STUD_DIAMETER = 4.8
@@ -26,9 +26,9 @@ def strut_thickness_from(pitch, stud_diameter):
     Pure function, general. Compute lattice strut thickness from pitch
     and stud diameter so that the diamond inscribed circle = stud diameter.
 
-    For ±45° struts with perpendicular spacing pitch/√2, the diamond opening's
-    inscribed circle = (perpendicular spacing) − strut_thickness. Setting this
-    equal to stud_diameter gives: t = pitch/√2 − stud_diameter.
+    For +/-45 deg struts with perpendicular spacing pitch/sqrt(2), the diamond
+    opening's inscribed circle = (perpendicular spacing) - strut_thickness.
+    Setting this equal to stud_diameter gives: t = pitch/sqrt(2) - stud_diameter.
 
     Args:
         pitch (float): Stud center-to-center distance (mm).
@@ -51,7 +51,7 @@ def strut_c_values(studs_x, studs_y, pitch):
     Pure function, general. Compute the c-values for lattice strut center lines.
 
     Struts are positioned midway between adjacent stud diagonals, plus one
-    on each outer side. For both ±45° families, the c-values are identical
+    on each outer side. For both +/-45 deg families, the c-values are identical
     (symmetric grid).
 
     Args:

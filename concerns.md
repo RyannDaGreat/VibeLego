@@ -339,3 +339,13 @@ at any Z through the bottom is one contiguous region.
 - **Root cause**: Lattice struts are 0.857mm wide. Where +45° and −45° struts intersect, acute angles create edges shorter than the fillet radius (0.15mm). OCCT can't fillet these.
 - **Fix**: Set fillet `z_threshold=cavity_z` so only edges above the cavity (studs, outer box top) are filleted. Lattice edges at Z=0 to cavity_z are skipped.
 - **Result**: 613 faces (vs 540 broken), correct diamond lattice visible in renders.
+
+## 2026-03-16: Directory Restructure (LEGO/Clara separation)
+
+### Restructure: models/lego/ -> models/bricks/{lego,clara}/
+- **Problem**: LEGO and Clara are different brick systems (tube clutch vs lattice clutch) but were mixed in one directory with Clara as just an enum value in the LEGO panel. This caused confusion: tube sliders appearing for Clara, switching brick type changing clutch mechanism unexpectedly.
+- **Solution**: Split into `models/bricks/lego/` and `models/bricks/clara/` with shared `models/bricks/common.py`. Each system gets its own `panel_def.py` (Clara has no tube/ridge internals), `parametric.py`, and geometry lib.
+- **Shared code**: Constants (PITCH, STUD_DIAMETER, etc.) and `fillet_above_z()` extracted to `common.py`. LEGO-only constants (TUBE_*, RIDGE_*) stay in `lego_lib.py`.
+- **No infrastructure changes needed**: `blender_watcher.py` discovers `panel_def.py` dynamically from `WATCH_DIR = os.path.dirname(SOURCE_FILE)`, so it works with any directory. `build_worker.py` loads parametric module from argv path. `run.sh` and `render.sh` take any source path.
+- **Verified**: Clara lattice tests (7/7 pass), LEGO brick build (541 faces), Clara brick build (613 faces), convenience scripts, parametric entry points all work.
+- **DRY concern noted**: JSON key names are listed in both `panel_def.py` SECTIONS and `parametric.py` OVERRIDABLE_CONSTANTS — 15 constant names duplicated. Future improvement: derive OVERRIDABLE_CONSTANTS from SECTIONS data.

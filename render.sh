@@ -23,7 +23,7 @@ if [[ $# -lt 1 ]]; then
     echo "  Builds the model and renders 4 diagnostic angles as PNGs."
     echo "  Output goes to renders/ directory."
     echo ""
-    echo "Example: $0 models/lego/brick_2x4.py"
+    echo "Example: $0 models/bricks/lego/brick_2x4.py"
     exit 1
 fi
 

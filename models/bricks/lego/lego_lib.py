@@ -1,8 +1,7 @@
 """
-Clara brick geometry library — pure functions for generating anatomically
-correct brick geometry using build123d.
+LEGO brick geometry library — tube-based clutch system.
 
-Architecture: 2D sketch → extrude. Cross-section profiles (walls, tubes)
+Architecture: 2D sketch -> extrude. Cross-section profiles (walls, tubes)
 are defined in 2D and extruded once, so internal features can't exceed
 boundaries. A ceiling box seals the top separately (different thickness
 from walls). Studs, fillets, and raised text are added in separate passes.
@@ -11,75 +10,45 @@ Coordinate convention: brick sits on XY plane, studs point up (+Z).
 Origin at the center-bottom of the brick body (not including studs).
 """
 
-from build123d import (
-    Box, Circle, Cylinder, Rectangle, Pos, Rot, Plane,
-    Align, Kind, Mode, Keep, FontStyle,
-    BuildPart, BuildSketch, add, Locations, GridLocations,
-    Text, extrude, offset, split,
-)
 import math
+import os
+import sys
 
-# ── Dimension Constants (mm) ─────────────────────────────────────────────────
-# Sources: LDraw (1 LDU = 0.4mm), OpenSCAD lego.scad, Bartneck measurements
-# Base unit: 1 LDU = 0.4mm. Stud pitch = 20 LDU = 8.0mm.
+# Allow importing common.py from parent directory
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-PITCH = 8.0             # stud center-to-center (20 LDU)
-STUD_DIAMETER = 4.8     # stud outer diameter (12 LDU)
-STUD_HEIGHT = 1.8       # stud protrusion above brick top
-BRICK_HEIGHT = 9.6      # standard brick body (24 LDU, without stud)
-PLATE_HEIGHT = 3.2      # plate body (8 LDU, 1/3 of brick)
-WALL_THICKNESS = 1.5    # outer wall thickness
-FLOOR_THICKNESS = 1.0   # top ceiling thickness
-CLEARANCE = 0.1         # per-side fit clearance
+from build123d import (
+    Box, Circle, Cylinder, Pos, Plane,
+    Align, Mode, Keep, FontStyle,
+    BuildPart, BuildSketch, add, Locations, GridLocations,
+    Text, extrude, split,
+)
+from common import (
+    PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
+    BRICK_HEIGHT, PLATE_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
+    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, STUD_TEXT, STUD_TEXT_FONT,
+    STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, fillet_above_z,
+)
+
+# ── LEGO-only Constants (mm) ─────────────────────────────────────────────────
 
 TUBE_OUTER_DIAMETER = 6.31  # anti-stud tube outer
 TUBE_INNER_DIAMETER = 4.8   # tube inner (~stud diameter)
-RIDGE_WIDTH = 0.8       # bottom ridge for 1-wide bricks
-RIDGE_HEIGHT = 0.8      # ridge depth below ceiling
+RIDGE_WIDTH = 0.8           # bottom ridge for 1-wide bricks
+RIDGE_HEIGHT = 0.8          # ridge depth below ceiling
 
-FILLET_RADIUS = 0.15    # edge rounding
-STUD_TEXT = "CLARA"
-STUD_TEXT_FONT_SIZE = 1.0
-STUD_TEXT_HEIGHT = 0.1  # raised text height
-
-STUD_RADIUS = STUD_DIAMETER / 2
 TUBE_OUTER_RADIUS = TUBE_OUTER_DIAMETER / 2
 TUBE_INNER_RADIUS = TUBE_INNER_DIAMETER / 2
 
 
-# ── General helper ───────────────────────────────────────────────────────────
-
-def fillet_above_z(part, radius, z_threshold=0.0, tolerance=0.01):
-    """
-    Pure function, general. Fillet all edges above a Z threshold.
-
-    Keeps bottom edges sharp (build plate adhesion / clean base).
-
-    Args:
-        part (Part): Solid to fillet.
-        radius (float): Fillet radius (mm).
-        z_threshold (float): Edges at or below this Z are skipped.
-        tolerance (float): Z comparison tolerance.
-
-    Returns:
-        Part: Filleted solid.
-
-    Examples:
-        >>> # fillet_above_z(box, 0.15) -> fillets everything except Z=0
-        >>> # fillet_above_z(box, 0.5, z_threshold=2.0) -> skip Z<=2
-    """
-    edges = [e for e in part.edges() if e.center().Z > z_threshold + tolerance]
-    return part.fillet(radius, edges)
-
-
-# ── Clara bricks ─────────────────────────────────────────────────────────────
+# ── LEGO bricks ──────────────────────────────────────────────────────────────
 
 def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, specific. Create a complete Clara brick.
+    Pure function, specific. Create a complete LEGO brick with tube clutch.
 
-    Cross-section sketch (walls + tubes) → extrude → ceiling → ridge →
-    studs → fillet → text.
+    Cross-section sketch (walls + tubes) -> extrude -> ceiling -> ridge ->
+    studs -> fillet -> text.
 
     Args:
         studs_x (int): Studs along X (e.g., 2 for a 2x4).
@@ -129,7 +98,7 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
                          align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet, then text (text edges too fine for OCCT filleter)
-    result = fillet_above_z(brick.part, FILLET_RADIUS)
+    result = fillet_above_z(brick.part, FILLET_RADIUS) if ENABLE_FILLET else brick.part
 
     with BuildPart() as final:
         add(result)
@@ -138,96 +107,7 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
         with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
             with GridLocations(PITCH, PITCH, studs_x, studs_y):
                 Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                     font_style=FontStyle.BOLD,
-                     align=(Align.CENTER, Align.CENTER))
-        extrude(amount=STUD_TEXT_HEIGHT)
-
-    return final.part
-
-
-def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT):
-    """
-    Pure function, specific. Create a Clara brick with diagonal lattice clutch.
-
-    Same shell as lego_brick, but instead of cylindrical tubes the underside
-    uses ±45° crisscross struts forming diamond openings. Each diamond's
-    inscribed circle = STUD_DIAMETER for exact stud fit. The lattice is fully
-    wall-connected — no floating internal features. A Z-plane cross-section
-    through the bottom is one contiguous region (walls + struts).
-
-    Strut thickness derived: PITCH / √2 − STUD_DIAMETER ≈ 0.857 mm.
-    Struts per direction = studs_x + studs_y (6 for a 2x4).
-
-    Strut positioning: strut center lines are at c-values spaced PITCH apart,
-    centered on zero. +45° strut at c: line y − x = c, center at (−c/2, c/2).
-    −45° strut at c: line y + x = c, center at (c/2, c/2). All struts are
-    long rectangles clipped to the inner cavity via Mode.INTERSECT.
-
-    Note: fillet threshold is set to cavity_z (not 0) because the thin lattice
-    strut intersections create edges too small for OCCT's filleter.
-
-    Args:
-        studs_x (int): Studs along X.
-        studs_y (int): Studs along Y.
-        height (float): Body height. Default BRICK_HEIGHT.
-
-    Returns:
-        Part: Complete Clara brick.
-
-    Examples:
-        >>> # clara_brick(2, 4) -> 2x4 Clara brick with diamond lattice
-        >>> # clara_brick(1, 1) -> 1x1 with X-shaped lattice cross
-    """
-    outer_x = studs_x * PITCH - 2 * CLEARANCE
-    outer_y = studs_y * PITCH - 2 * CLEARANCE
-    inner_x = outer_x - 2 * WALL_THICKNESS
-    inner_y = outer_y - 2 * WALL_THICKNESS
-    cavity_z = height - FLOOR_THICKNESS
-
-    # Strut geometry — derived from stud-fit constraint
-    strut_thickness = PITCH / math.sqrt(2) - STUD_DIAMETER
-    n_struts = studs_x + studs_y
-    strut_len = (inner_x + inner_y) * 2  # generous, clipped by intersection
-    c_start = -(n_struts - 1) / 2 * PITCH
-    c_values = [c_start + i * PITCH for i in range(n_struts)]
-
-    with BuildPart() as brick:
-        # ── Shell: solid box minus cavity ──
-        Box(outer_x, outer_y, height,
-            align=(Align.CENTER, Align.CENTER, Align.MIN))
-        Box(inner_x, inner_y, cavity_z,
-            align=(Align.CENTER, Align.CENTER, Align.MIN), mode=Mode.SUBTRACT)
-
-        # ── Diagonal lattice (2D sketch → extrude) ──
-        # NOTE: Pos * Rot * Rectangle does NOT work in BuildSketch (rotation
-        # silently ignored). Must use Locations context manager instead.
-        with BuildSketch():
-            for c in c_values:
-                # +45° strut along line y − x = c
-                with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
-                    Rectangle(strut_len, strut_thickness)
-                # −45° strut along line y + x = c
-                with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
-                    Rectangle(strut_len, strut_thickness)
-            # Clip to cavity bounds (struts fuse with walls)
-            Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)
-        extrude(amount=cavity_z)
-
-        # ── Studs ──
-        with Locations([Pos(0, 0, height)]):
-            with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                         align=(Align.CENTER, Align.CENTER, Align.MIN))
-
-    # Fillet above cavity only — lattice strut edges are too thin for OCCT filleter
-    result = fillet_above_z(brick.part, FILLET_RADIUS, z_threshold=cavity_z)
-
-    with BuildPart() as final:
-        add(result)
-        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
-            with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                     font_style=FontStyle.BOLD,
+                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
                      align=(Align.CENTER, Align.CENTER))
         extrude(amount=STUD_TEXT_HEIGHT)
 
@@ -240,13 +120,13 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
 
     Slope descends toward +Y. Only flat_rows of studs retained.
 
-    Build order (critical — prevents exposed cavity):
-        1. Solid outer box → cut slope
-        2. Interior cavity → cut by OFFSET slope plane (ensures
+    Build order (critical -- prevents exposed cavity):
+        1. Solid outer box -> cut slope
+        2. Interior cavity -> cut by OFFSET slope plane (ensures
            FLOOR_THICKNESS of material between slope face and cavity)
         3. Shell = outer - cavity
-        4. Tubes: sketch → extrude → clip to cavity via boolean &
-        5. Add studs, ridge → fillet → text
+        4. Tubes: sketch -> extrude -> clip to cavity via boolean &
+        5. Add studs, ridge -> fillet -> text
 
     The cavity cut plane is offset inward along the slope normal by
     FLOOR_THICKNESS. Without this, the cavity ceiling touches the slope
@@ -301,7 +181,7 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
 
     shell = sloped_outer - sloped_cavity
 
-    # ── Tubes: sketch → extrude → clip to cavity ──
+    # ── Tubes: sketch -> extrude -> clip to cavity ──
     clipped_tubes = None
     if studs_x >= 2 and studs_y >= 2:
         with BuildPart() as tb:
@@ -338,7 +218,7 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
                          align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet, then text on flat studs
-    result = fillet_above_z(brick.part, FILLET_RADIUS)
+    result = fillet_above_z(brick.part, FILLET_RADIUS) if ENABLE_FILLET else brick.part
 
     if flat_xy:
         with BuildPart() as final:

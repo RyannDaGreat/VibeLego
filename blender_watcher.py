@@ -85,28 +85,238 @@ def clear_default_scene():
     bpy.ops.outliner.orphans_purge(do_recursive=True)
 
 
+def _get_3d_space():
+    """
+    Query, general. Return the first VIEW_3D SpaceView3D in the current screen.
+
+    Returns:
+        bpy.types.SpaceView3D or None
+
+    Examples:
+        >>> # space = _get_3d_space()
+    """
+    for area in bpy.context.screen.areas:
+        if area.type == "VIEW_3D":
+            for space in area.spaces:
+                if space.type == "VIEW_3D":
+                    return space
+    return None
+
+
 def setup_viewport():
     """
     Command, specific. Configure the 3D viewport for CAD preview:
     orthographic projection, matcap shading with ceramic studio light,
     cavity highlighting for edge definition.
     """
-    for area in bpy.context.screen.areas:
-        if area.type == "VIEW_3D":
-            for space in area.spaces:
-                if space.type == "VIEW_3D":
-                    space.region_3d.view_perspective = "ORTHO"
-                    space.shading.type = "SOLID"
-                    space.shading.light = "MATCAP"
-                    space.shading.studio_light = "ceramic_lightbulb.exr"
-                    space.shading.show_cavity = True
-                    space.shading.cavity_type = "BOTH"
-                    space.overlay.show_floor = True
-                    space.overlay.show_axis_x = True
-                    space.overlay.show_axis_y = True
-                    # Open N-sidebar
-                    space.show_region_ui = True
-                    break
+    space = _get_3d_space()
+    if space:
+        space.region_3d.view_perspective = "ORTHO"
+        space.shading.type = "SOLID"
+        space.shading.light = "MATCAP"
+        space.shading.studio_light = "ceramic_lightbulb.exr"
+        space.shading.show_cavity = True
+        space.shading.cavity_type = "BOTH"
+        space.overlay.show_floor = True
+        space.overlay.show_axis_x = True
+        space.overlay.show_axis_y = True
+        space.show_region_ui = True
+
+
+# ── Anatomy highlight ────────────────────────────────────────────────────────
+# Region definitions and classify_face come from panel_def.py (via panel_common).
+# blender_watcher.py only handles the generic Blender machinery: color attributes,
+# materials, viewport toggle. The _anatomy_* module globals are set by register_panel().
+
+ANATOMY_COLOR_ATTR_NAME = "anatomy_region"
+_anatomy_colors = None        # dict: region -> RGBA, from panel_def.ANATOMY_COLORS
+_anatomy_region_items = None  # list of enum tuples, from panel_def.ANATOMY_REGION_ITEMS
+_classify_face_fn = None      # callable(mesh, poly, params) -> str
+
+
+def _apply_anatomy_colors(obj, params, highlight_region="ALL"):
+    """
+    Command, specific. Classify all faces of the mesh by anatomical region
+    and apply per-face vertex colors. Creates or replaces the color attribute.
+
+    When highlight_region is "ALL", every region gets its own color.
+    When a specific region is selected, only that region is colored and
+    everything else is light gray — isolating it visually.
+
+    Also sets up a material that displays the color attribute in the viewport.
+
+    Args:
+        obj (bpy.types.Object): The mesh object.
+        params (dict): Panel params for geometry bounds.
+        highlight_region (str): "ALL" or a region key (e.g. "studs", "walls").
+    """
+    if _classify_face_fn is None or _anatomy_colors is None:
+        return
+
+    mesh = obj.data
+    dimmed = _anatomy_colors["default"]
+
+    # Remove old color attribute if present
+    existing = mesh.color_attributes.get(ANATOMY_COLOR_ATTR_NAME)
+    if existing:
+        mesh.color_attributes.remove(existing)
+
+    color_attr = mesh.color_attributes.new(
+        name=ANATOMY_COLOR_ATTR_NAME,
+        type='FLOAT_COLOR',
+        domain='CORNER',
+    )
+    mesh.color_attributes.active = color_attr
+
+    # Classify and color each face
+    color_data = color_attr.data
+    for poly in mesh.polygons:
+        region = _classify_face_fn(mesh, poly, params)
+        if highlight_region == "ALL":
+            color = _anatomy_colors.get(region, dimmed)
+        else:
+            color = _anatomy_colors.get(region, dimmed) if region == highlight_region else dimmed
+        for loop_idx in poly.loop_indices:
+            color_data[loop_idx].color = color
+
+    # Set up material to display color attribute
+    _setup_anatomy_material(obj)
+
+
+def _clear_anatomy_colors(obj):
+    """
+    Command, specific. Remove anatomy color attribute and restore the
+    default white plastic material.
+
+    Args:
+        obj (bpy.types.Object): The mesh object.
+    """
+    mesh = obj.data
+    existing = mesh.color_attributes.get(ANATOMY_COLOR_ATTR_NAME)
+    if existing:
+        mesh.color_attributes.remove(existing)
+
+    _setup_default_material(obj)
+
+
+def _setup_material(obj, mat_name, configure_fn):
+    """
+    Command, general. Get-or-create a material, clear its nodes, call
+    configure_fn to populate the node tree, and assign it to obj's slot 0.
+
+    Args:
+        obj (bpy.types.Object): The mesh object.
+        mat_name (str): Material name (reused if already exists).
+        configure_fn (callable): (nodes, links) -> None. Adds shader nodes.
+
+    Examples:
+        >>> # _setup_material(obj, "my_mat", lambda n, l: ...)
+    """
+    mat = bpy.data.materials.get(mat_name)
+    if mat is None:
+        mat = bpy.data.materials.new(name=mat_name)
+
+    mat.use_nodes = True
+    mat.node_tree.nodes.clear()
+    configure_fn(mat.node_tree.nodes, mat.node_tree.links)
+
+    if len(obj.data.materials) == 0:
+        obj.data.materials.append(mat)
+    else:
+        obj.data.materials[0] = mat
+
+
+def _configure_anatomy_nodes(nodes, links):
+    """
+    Command, specific. Populate node tree for anatomy color display:
+    Color Attribute -> Principled BSDF -> Output.
+    """
+    attr_node = nodes.new('ShaderNodeAttribute')
+    attr_node.attribute_name = ANATOMY_COLOR_ATTR_NAME
+    attr_node.location = (-300, 300)
+
+    bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.location = (0, 300)
+    bsdf.inputs['Roughness'].default_value = 0.4
+
+    output = nodes.new('ShaderNodeOutputMaterial')
+    output.location = (300, 300)
+
+    links.new(attr_node.outputs['Color'], bsdf.inputs['Base Color'])
+    links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+
+
+def _configure_default_nodes(nodes, links):
+    """
+    Command, specific. Populate node tree for default white plastic:
+    Principled BSDF (white, smooth) -> Output.
+    """
+    bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.location = (0, 300)
+    bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+    bsdf.inputs['Roughness'].default_value = 0.3
+
+    output = nodes.new('ShaderNodeOutputMaterial')
+    output.location = (300, 300)
+
+    links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+
+
+def _setup_anatomy_material(obj):
+    """Command, specific. Apply anatomy color display material to obj."""
+    _setup_material(obj, "anatomy_highlight", _configure_anatomy_nodes)
+
+
+def _setup_default_material(obj):
+    """Command, specific. Apply default white plastic material to obj."""
+    _setup_material(obj, "brick_plastic", _configure_default_nodes)
+
+
+def _on_anatomy_toggle(self, context):
+    """
+    Command, specific. Callback when anatomy toggle or region selector changes.
+    Applies or clears colors on the preview object.
+    """
+    obj = bpy.data.objects.get(OBJECT_NAME)
+    if obj is None:
+        return
+
+    props = context.scene.build123d_props
+    show = getattr(props, "show_anatomy", False)
+
+    if show:
+        region = getattr(props, "anatomy_region", "ALL")
+        params = panel_params_to_dict()
+        _apply_anatomy_colors(obj, params, highlight_region=region)
+        space = _get_3d_space()
+        if space:
+            space.shading.type = "MATERIAL"
+    else:
+        _clear_anatomy_colors(obj)
+        space = _get_3d_space()
+        if space:
+            space.shading.type = "SOLID"
+            space.shading.light = "MATCAP"
+            space.shading.studio_light = "ceramic_lightbulb.exr"
+
+
+def _reapply_anatomy_if_active():
+    """
+    Command, specific. If anatomy toggle is on, reapply colors to the
+    current mesh. Called after every mesh update to restore colors that
+    are lost when geometry is replaced.
+    """
+    if not hasattr(bpy.types.Scene, "build123d_props"):
+        return
+    props = bpy.context.scene.build123d_props
+    if not getattr(props, "show_anatomy", False):
+        return
+    obj = bpy.data.objects.get(OBJECT_NAME)
+    if obj is None:
+        return
+    region = getattr(props, "anatomy_region", "ALL")
+    params = panel_params_to_dict()
+    _apply_anatomy_colors(obj, params, highlight_region=region)
 
 
 # ── STL import (version-safe) ──────────────────────────────────────────────────
@@ -363,6 +573,7 @@ def _do_panel_rebuild():
     if os.path.exists(PANEL_STL_PATH):
         t_mesh_start = time.perf_counter()
         update_mesh_from_stl(PANEL_STL_PATH)
+        _reapply_anatomy_if_active()
         t_mesh = time.perf_counter() - t_mesh_start
         build_t = response.get("build", "?")
         export_t = response.get("export", "?")
@@ -399,7 +610,7 @@ def _make_bpy_property(param):
             and optional min/max/step/precision/description/items.
 
     Returns:
-        bpy.props descriptor (FloatProperty, IntProperty, or EnumProperty).
+        bpy.props descriptor (FloatProperty, IntProperty, StringProperty, or EnumProperty).
 
     Examples:
         >>> # _make_bpy_property({"type": "float", "label": "X", "default": 1.0, "min": 0, "max": 10})
@@ -423,6 +634,16 @@ def _make_bpy_property(param):
             if k in param:
                 kwargs[k] = param[k]
         return bpy.props.IntProperty(**kwargs)
+
+    elif ptype == "bool":
+        kwargs["default"] = param.get("default", False)
+        return bpy.props.BoolProperty(**kwargs)
+
+    elif ptype == "string":
+        kwargs["default"] = param.get("default", "")
+        if "maxlen" in param:
+            kwargs["maxlen"] = param["maxlen"]
+        return bpy.props.StringProperty(**kwargs)
 
     elif ptype == "enum":
         kwargs["items"] = param["items"]
@@ -458,6 +679,23 @@ def _build_panel_classes(sections):
     # Build defaults dict for the reset operator
     _defaults = {param["key"]: param["default"]
                  for section in sections for param in section["params"]}
+
+    # Anatomy highlight (display-only, not parametric build params)
+    # Only add if the panel_def provides anatomy data
+    if _anatomy_region_items is not None:
+        annotations["show_anatomy"] = bpy.props.BoolProperty(
+            name="Show Anatomy Colors",
+            description="Color mesh faces by anatomical region (studs, walls, deck, etc.)",
+            default=False,
+            update=_on_anatomy_toggle,
+        )
+        annotations["anatomy_region"] = bpy.props.EnumProperty(
+            name="Region",
+            description="Which region to highlight (All = color everything, or pick one to isolate it)",
+            items=_anatomy_region_items,
+            default="ALL",
+            update=_on_anatomy_toggle,
+        )
 
     PropGroup = type(
         "Build123dProperties",
@@ -532,6 +770,14 @@ def _build_panel_classes(sections):
                 else:
                     box.prop(props, key)
 
+        # Anatomy highlight (not part of parametric sections)
+        if _anatomy_region_items is not None:
+            box = layout.box()
+            box.label(text="Anatomy", icon="COLOR")
+            box.prop(props, "show_anatomy")
+            if props.show_anatomy:
+                box.prop(props, "anatomy_region")
+
     PanelClass = type(
         "BUILD123D_PT_Panel",
         (bpy.types.Panel,),
@@ -589,14 +835,23 @@ def register_panel():
     Command, general. Discover panel_def.py in the watched directory,
     dynamically build and register the PropertyGroup + Panel. If no
     panel_def.py exists, the panel is simply not created (file watcher
-    still works).
+    still works). Also loads anatomy data (classify_face, colors, regions)
+    from panel_def if available.
     """
     global _panel_def, _parametric_script, _registered_classes
+    global _anatomy_colors, _anatomy_region_items, _classify_face_fn
 
     _panel_def = _load_panel_def(WATCH_DIR)
     if _panel_def is None:
         print("[panel] No panel_def.py in watch dir — panel disabled")
         return
+
+    # Load anatomy data from panel_def (optional — panel works without it)
+    _classify_face_fn = getattr(_panel_def, "classify_face", None)
+    _anatomy_colors = getattr(_panel_def, "ANATOMY_COLORS", None)
+    _anatomy_region_items = getattr(_panel_def, "ANATOMY_REGION_ITEMS", None)
+    if _classify_face_fn:
+        print("[panel] Anatomy highlight available")
 
     _parametric_script = os.path.join(WATCH_DIR, _panel_def.PARAMETRIC_SCRIPT)
     if not os.path.exists(_parametric_script):
@@ -667,6 +922,13 @@ def poll_source_file():
         _last_dir_mtime = dir_mtime
         print(f"[watcher] .py file changed in {WATCH_DIR}, rebuilding...")
 
+        # Cancel any pending panel rebuild to avoid race with file-change rebuild
+        global _panel_rebuild_pending
+        if _panel_rebuild_pending:
+            if bpy.app.timers.is_registered(_do_panel_rebuild):
+                bpy.app.timers.unregister(_do_panel_rebuild)
+            _panel_rebuild_pending = False
+
         # Kill the persistent worker so it respawns with fresh imports
         if _worker is not None:
             _kill_worker()
@@ -682,6 +944,7 @@ def poll_source_file():
                 if stl_mtime != _last_stl_mtime:
                     _last_stl_mtime = stl_mtime
                     update_mesh_from_stl(STL_PATH)
+                    _reapply_anatomy_if_active()
             else:
                 print(f"[watcher] WARNING: Build succeeded but no STL at {STL_PATH}")
 
@@ -720,6 +983,7 @@ def main():
             if os.path.exists(STL_PATH):
                 _last_stl_mtime = os.path.getmtime(STL_PATH)
                 update_mesh_from_stl(STL_PATH)
+                _reapply_anatomy_if_active()
 
 
 main()

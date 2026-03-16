@@ -1,11 +1,11 @@
 """
-Clara 2x4 brick — diagonal lattice clutch demonstration.
+Clara 2x4 brick -- default entry point for ./run.sh.
 
-Command, specific. Builds a 2x4 Clara brick and exports to STL.
-The lattice bottom uses 45-degree crisscross struts instead of tubes.
+Command, specific. Builds a default 2x4 Clara brick and exports to STL.
+Pass this file to run.sh for interactive Blender work with the Clara panel.
 
 Usage:
-    uv run --with ./build123d models/lego/clara_2x4.py
+    ./run.sh models/bricks/clara/clara.py
 """
 
 import os
@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from build123d import export_stl
-from lego_lib import clara_brick
+from clara_lib import clara_brick
 
 result = clara_brick(2, 4)
 
