@@ -66,6 +66,11 @@ CONFIGS = [
                     "studs_plus_y": 2, "studs_minus_y": 2,
                     "cross_width_x": 1, "cross_width_y": 1,
                     "enable_corner_radius": True, "corner_radius": 2.0}),
+    ("Cross + CR all", {"shape_mode": "CROSS", "studs_plus_x": 2, "studs_minus_x": 2,
+                         "studs_plus_y": 2, "studs_minus_y": 2,
+                         "cross_width_x": 1, "cross_width_y": 1,
+                         "enable_corner_radius": True, "corner_radius": 2.0,
+                         "CR_SKIP_CONCAVE": False}),
 
     # 4-directional slopes
     ("Slope -Y", {**_NO_CLARA, "studs_x": 2, "studs_y": 4,

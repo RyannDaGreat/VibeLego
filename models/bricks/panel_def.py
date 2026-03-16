@@ -213,6 +213,11 @@ SECTIONS = [
                 "step": 10, "precision": 2,
                 "description": "2D corner rounding of brick outline (like CSS border-radius)",
             },
+            {
+                "key": "cr_skip_concave", "json_key": "CR_SKIP_CONCAVE", "type": "bool",
+                "label": "Skip Concave", "default": True,
+                "description": "Skip reentrant (inner) corners on cross shapes",
+            },
         ],
     },
     # ── Wall Taper (was Clara-only, now general) ─────────────────────────────

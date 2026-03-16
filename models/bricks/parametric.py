@@ -61,6 +61,7 @@ def _build(params):
     # Corner radius
     enable_cr = params.get("enable_corner_radius", True)
     corner_radius = float(params.get("corner_radius", 0)) if enable_cr else 0
+    cr_skip_concave = bool(params.get("CR_SKIP_CONCAVE", True))
 
     # Wall taper
     enable_wt = params.get("enable_wall_taper", True)
@@ -84,7 +85,7 @@ def _build(params):
 
     shape_kwargs = dict(
         clutch=clutch,
-        corner_radius=corner_radius,
+        corner_radius=corner_radius, cr_skip_concave=cr_skip_concave,
         taper_height=taper_height, taper_inset=taper_inset, taper_curve=taper_curve,
         stud_taper_height=stud_taper_height, stud_taper_inset=stud_taper_inset,
         stud_taper_curve=stud_taper_curve,
