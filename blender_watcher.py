@@ -691,7 +691,8 @@ def _build_panel_classes(sections):
                  for section in sections for param in section["params"]}
 
     # Anatomy highlight (display-only, not parametric build params)
-    # Only add if the panel_def provides anatomy data
+    # Registered manually (needs update callback + dynamic enum items),
+    # but drawn generically via enable_key section pattern.
     if _anatomy_region_items is not None:
         annotations["show_anatomy"] = bpy.props.BoolProperty(
             name="Show Anatomy Colors",
@@ -706,6 +707,8 @@ def _build_panel_classes(sections):
             default="ALL",
             update=_on_anatomy_toggle,
         )
+        _defaults["show_anatomy"] = False
+        _defaults["anatomy_region"] = "ALL"
 
     PropGroup = type(
         "Build123dProperties",
@@ -768,8 +771,20 @@ def _build_panel_classes(sections):
         },
     )
 
-    # Capture sections and presets for the draw() closure
-    _sections = sections
+    # Capture sections for the draw() closure, plus anatomy if available
+    _sections = list(sections)
+    if _anatomy_region_items is not None:
+        _sections.append({
+            "label": "Anatomy",
+            "icon": "COLOR",
+            "enable_key": "show_anatomy",
+            "params": [
+                {"key": "show_anatomy", "type": "bool", "label": "Show",
+                 "default": False},
+                {"key": "anatomy_region", "type": "enum", "label": "Region",
+                 "default": "ALL"},
+            ],
+        })
 
     def draw_panel(self, context):
         """Command, general. Draw panel layout from section definitions."""
@@ -841,14 +856,6 @@ def _build_panel_classes(sections):
                         drawn_in_row.add(rk)
                 else:
                     box.prop(props, key)
-
-        # Anatomy highlight (not part of parametric sections)
-        if _anatomy_region_items is not None:
-            box = layout.box()
-            box.label(text="Anatomy", icon="COLOR")
-            box.prop(props, "show_anatomy")
-            if props.show_anatomy:
-                box.prop(props, "anatomy_region")
 
     PanelClass = type(
         "BUILD123D_PT_Panel",

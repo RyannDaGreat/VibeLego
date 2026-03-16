@@ -122,15 +122,16 @@ POLISH_SECTION = {
 # toggle. Shared by all brick systems (classification is geometry-based).
 
 ANATOMY_COLORS = {
-    "studs":       (0.90, 0.30, 0.30, 1.0),  # red
-    "stud_taper":  (0.95, 0.55, 0.55, 1.0),  # pink (sub-region of studs)
-    "logo":        (0.95, 0.70, 0.20, 1.0),  # orange/gold
-    "deck":        (0.30, 0.75, 0.40, 1.0),  # green
-    "walls":       (0.35, 0.55, 0.90, 1.0),  # blue
-    "taper":       (0.50, 0.75, 0.95, 1.0),  # light blue (sub-region of walls)
-    "internals":   (0.70, 0.40, 0.85, 1.0),  # purple (tubes or lattice)
-    "base":        (0.50, 0.50, 0.50, 1.0),  # gray (bottom face at Z=0)
-    "default":     (0.85, 0.85, 0.85, 1.0),  # light gray (unclassified/fillets)
+    "studs":            (0.90, 0.30, 0.30, 1.0),  # red
+    "stud_taper":       (0.95, 0.55, 0.55, 1.0),  # pink (sub-region of studs)
+    "logo":             (0.95, 0.70, 0.20, 1.0),  # orange/gold
+    "deck":             (0.30, 0.75, 0.40, 1.0),  # green
+    "walls":            (0.35, 0.55, 0.90, 1.0),  # blue
+    "taper":            (0.50, 0.75, 0.95, 1.0),  # light blue (sub-region of walls)
+    "internal_walls":   (0.70, 0.40, 0.85, 1.0),  # purple (tubes, lattice struts)
+    "internal_ceiling": (0.80, 0.60, 0.90, 1.0),  # lavender (deck underside)
+    "base":             (0.50, 0.50, 0.50, 1.0),  # gray (bottom face at Z=0)
+    "default":          (0.85, 0.85, 0.85, 1.0),  # light gray (unclassified/fillets)
 }
 
 # Regions are NOT mutually exclusive -- they can overlap (parent/child).
@@ -141,21 +142,24 @@ ANATOMY_COLORS = {
 ANATOMY_REGION_GROUPS = {
     "walls_all": ["walls", "taper"],
     "studs_all": ["studs", "stud_taper"],
+    "internals_all": ["internal_walls", "internal_ceiling"],
 }
 
 ANATOMY_REGION_ITEMS = [
-    ("ALL",        "All Regions",     "Color all regions simultaneously"),
-    ("studs_all",  "Studs (all)",     "All stud faces including tapered zone"),
-    ("studs",      "Studs (straight)","Straight cylindrical portion of studs"),
-    ("stud_taper", "Stud Taper",      "Tapered zone at stud tops"),
-    ("logo",       "Logo",            "Raised text on each stud top"),
-    ("deck",       "Deck",            "Flat top surface where studs sit"),
-    ("walls_all",  "Walls (all)",     "All outer wall faces including tapered zone"),
-    ("walls",      "Walls (straight)","Straight portion of outer walls"),
-    ("taper",      "Wall Taper",      "Tapered zone at top of outer walls"),
-    ("internals",  "Internals",       "Cavity features: tubes (LEGO) or lattice (Clara)"),
-    ("base",       "Base",            "Bottom face at Z=0"),
-    ("default",    "Fillets/Other",   "Unclassified faces (fillets, transitions)"),
+    ("ALL",              "All Regions",       "Color all regions simultaneously"),
+    ("studs_all",        "Studs (all)",       "All stud faces including tapered zone"),
+    ("studs",            "Studs (straight)",  "Straight cylindrical portion of studs"),
+    ("stud_taper",       "Stud Taper",        "Tapered zone at stud tops"),
+    ("logo",             "Logo",              "Raised text on each stud top"),
+    ("deck",             "Deck",              "Flat top surface where studs sit"),
+    ("walls_all",        "Walls (all)",       "All outer wall faces including tapered zone"),
+    ("walls",            "Walls (straight)",  "Straight portion of outer walls"),
+    ("taper",            "Wall Taper",        "Tapered zone at top of outer walls"),
+    ("internals_all",    "Internals (all)",   "All cavity features including ceiling"),
+    ("internal_walls",   "Internal Walls",    "Tubes (LEGO) or lattice struts (Clara)"),
+    ("internal_ceiling", "Internal Ceiling",  "Underside of deck facing into cavity"),
+    ("base",             "Base",              "Bottom face at Z=0"),
+    ("default",          "Fillets/Other",     "Unclassified faces (fillets, transitions)"),
 ]
 
 
@@ -252,13 +256,13 @@ def classify_face(mesh, poly, params):
             return "taper"
         return "walls"
 
-    # Internals: faces inside the cavity (tubes, lattice, ridges, inner walls)
-    if inside_inner and cz > tol and cz < cavity_z + tol:
-        return "internals"
-
-    # Deck underside / ceiling
+    # Internal ceiling: underside of deck (faces down into cavity)
     if abs(cz - cavity_z) < tol and nz < -0.5 and inside_inner:
-        return "deck"
+        return "internal_ceiling"
+
+    # Internal walls: faces inside the cavity (tubes, lattice struts, ridges)
+    if inside_inner and cz > tol and cz < cavity_z + tol:
+        return "internal_walls"
 
     # Inner wall faces (between outer and inner perimeter, below deck)
     if cz > tol and cz < height - tol:
