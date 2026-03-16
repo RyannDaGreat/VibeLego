@@ -29,6 +29,7 @@ EDGE_STYLE = "FILLET"   # "FILLET" (rounded) or "CHAMFER" (straight bevel)
 FILLET_BOTTOM = False   # include bottom (Z=0) edges in fillet/chamfer
 SKIP_CONCAVE = False    # skip interior (concave) edges (stud-deck junctions)
 CR_SKIP_CONCAVE = True  # skip concave (reentrant) corners in cross-shape corner radius
+ENABLE_STUDS = True     # toggle studs on/off
 ENABLE_TEXT = True      # toggle stud text on/off
 STUD_TEXT = "CLARA"
 STUD_TEXT_FONT = "Arial"  # font name (system font) or path to .ttf file

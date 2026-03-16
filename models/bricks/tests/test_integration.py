@@ -87,6 +87,9 @@ CONFIGS = [
                        "studs_plus_y": 3, "studs_minus_y": 0,
                        "cross_width_x": 1, "cross_width_y": 1,
                        "enable_slope": True, "slope_plus_y": 3}),
+
+    # No studs
+    ("No studs", {**_NO_CLARA, "studs_x": 2, "studs_y": 4, "ENABLE_STUDS": False}),
 ]
 
 

@@ -74,6 +74,17 @@ SECTIONS = [
                 "label": "Width Y", "default": 1, "min": 1, "max": 8,
                 "description": "Width of X-axis arms in Y direction (studs)",
             },
+            {
+                "key": "pitch", "json_key": "PITCH", "type": "float",
+                "label": "Pitch", "default": 8.0, "min": 1.0, "max": 20.0,
+                "step": 10, "precision": 2,
+                "description": "Stud-to-stud spacing — sets overall brick dimensions (mm)",
+            },
+            {
+                "key": "brick_height", "json_key": "BRICK_HEIGHT", "type": "float",
+                "label": "Height", "default": 9.6, "min": 2.0, "max": 30.0,
+                "step": 10, "precision": 2,
+            },
         ],
         "rows": [["studs_x", "studs_y"]],
         "visible_when": {
@@ -125,30 +136,24 @@ SECTIONS = [
             },
         ],
     },
-    # ── Studs & Body ─────────────────────────────────────────────────────────
+    # ── Studs ──────────────────────────────────────────────────────────────────
     {
-        "label": "Studs & Body",
-        "icon": "ARROW_LEFTRIGHT",
+        "label": "Studs",
+        "icon": "MESH_CYLINDER",
+        "enable_key": "enable_studs",
         "params": [
             {
-                "key": "pitch", "json_key": "PITCH", "type": "float",
-                "label": "Stud Spacing", "default": 8.0, "min": 1.0, "max": 20.0,
-                "step": 10, "precision": 2,
-                "description": "Distance between stud centers (mm)",
+                "key": "enable_studs", "json_key": "ENABLE_STUDS",
+                "type": "bool", "label": "Enable", "default": True,
             },
             {
                 "key": "stud_diameter", "json_key": "STUD_DIAMETER", "type": "float",
-                "label": "Stud Diameter", "default": 4.8, "min": 1.0, "max": 10.0,
+                "label": "Diameter", "default": 4.8, "min": 1.0, "max": 10.0,
                 "step": 10, "precision": 2,
             },
             {
                 "key": "stud_height", "json_key": "STUD_HEIGHT", "type": "float",
-                "label": "Stud Height", "default": 4.0, "min": 0.5, "max": 8.0,
-                "step": 10, "precision": 2,
-            },
-            {
-                "key": "brick_height", "json_key": "BRICK_HEIGHT", "type": "float",
-                "label": "Brick Height", "default": 9.6, "min": 2.0, "max": 30.0,
+                "label": "Height", "default": 4.0, "min": 0.5, "max": 8.0,
                 "step": 10, "precision": 2,
             },
         ],

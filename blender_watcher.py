@@ -804,7 +804,7 @@ def _build_panel_classes(sections):
         })
 
     def draw_panel(self, context):
-        """Command, general. Draw panel layout from section definitions."""
+        """Command, general. Draw preset dropdown (parent panel body)."""
         layout = self.layout
         props = context.scene.build123d_props
 
@@ -815,60 +815,6 @@ def _build_panel_classes(sections):
             row.operator("build123d.reset_defaults", text="", icon="LOOP_BACK")
         else:
             layout.operator("build123d.reset_defaults", icon="LOOP_BACK")
-
-        for section in _sections:
-            box = layout.box()
-            enable_key = section.get("enable_key")
-
-            # Section header: checkbox + label if toggleable, plain label otherwise
-            if enable_key:
-                header = box.row(align=True)
-                header.prop(props, enable_key, text="")
-                header.label(text=section["label"], icon=section.get("icon", "NONE"))
-                # Hide child params when section is disabled
-                if not getattr(props, enable_key):
-                    continue
-            else:
-                box.label(text=section["label"], icon=section.get("icon", "NONE"))
-
-            visible_when = section.get("visible_when", {})
-            drawn_in_row = set()
-
-            for param in section["params"]:
-                key = param["key"]
-
-                # Skip the enable param (already drawn in header)
-                if key == enable_key:
-                    continue
-
-                # Check conditional visibility
-                if key in visible_when:
-                    cond = visible_when[key]
-                    if not all(getattr(props, ck) == cv for ck, cv in cond.items()):
-                        continue
-
-                if key in drawn_in_row:
-                    continue
-
-                # Check if this param starts a row
-                in_row = None
-                for row_group in section.get("rows", []):
-                    if key in row_group:
-                        in_row = row_group
-                        break
-
-                if in_row:
-                    row = box.row(align=True)
-                    for rk in in_row:
-                        # Check visibility for row members too
-                        if rk in visible_when:
-                            cond = visible_when[rk]
-                            if not all(getattr(props, ck) == cv for ck, cv in cond.items()):
-                                continue
-                        row.prop(props, rk)
-                        drawn_in_row.add(rk)
-                else:
-                    box.prop(props, key)
 
     PanelClass = type(
         "BUILD123D_PT_Panel",
@@ -883,7 +829,84 @@ def _build_panel_classes(sections):
         },
     )
 
-    return PropGroup, PanelClass, ResetOp, PresetOp
+    # ── Sub-panels (one per section, collapsible) ──
+    sub_panel_classes = []
+    for idx, section in enumerate(_sections):
+        label = section["label"]
+        enable_key = section.get("enable_key")
+        icon = section.get("icon", "NONE")
+        safe_label = label.replace(" ", "_").replace("&", "and")
+        idname = f"BUILD123D_PT_section_{safe_label}"
+
+        # Capture loop variables in closure
+        def _make_draw(sec, ek):
+            def draw_section(self, context):
+                props = context.scene.build123d_props
+                # Hide body when section is disabled via enable_key
+                if ek and not getattr(props, ek):
+                    return
+                layout = self.layout
+                visible_when = sec.get("visible_when", {})
+                drawn_in_row = set()
+                for param in sec["params"]:
+                    key = param["key"]
+                    if key == ek:
+                        continue
+                    if key in visible_when:
+                        cond = visible_when[key]
+                        if not all(getattr(props, ck) == cv
+                                   for ck, cv in cond.items()):
+                            continue
+                    if key in drawn_in_row:
+                        continue
+                    in_row = None
+                    for row_group in sec.get("rows", []):
+                        if key in row_group:
+                            in_row = row_group
+                            break
+                    if in_row:
+                        row = layout.row(align=True)
+                        for rk in in_row:
+                            if rk in visible_when:
+                                cond = visible_when[rk]
+                                if not all(getattr(props, ck) == cv
+                                           for ck, cv in cond.items()):
+                                    continue
+                            row.prop(props, rk)
+                            drawn_in_row.add(rk)
+                    else:
+                        layout.prop(props, key)
+            return draw_section
+
+        def _make_draw_header(ek):
+            if not ek:
+                return None
+            def draw_header(self, context):
+                props = context.scene.build123d_props
+                self.layout.prop(props, ek, text="")
+            return draw_header
+
+        attrs = {
+            "bl_label": label,
+            "bl_idname": idname,
+            "bl_space_type": "VIEW_3D",
+            "bl_region_type": "UI",
+            "bl_category": "build123d",
+            "bl_parent_id": "BUILD123D_PT_panel",
+            "bl_options": {"DEFAULT_CLOSED"},
+            "draw": _make_draw(section, enable_key),
+        }
+        header_draw = _make_draw_header(enable_key)
+        if header_draw:
+            attrs["draw_header"] = header_draw
+        if icon != "NONE":
+            attrs["bl_options"] = {"DEFAULT_CLOSED"}
+
+        SubPanel = type(f"BUILD123D_PT_section_{safe_label}",
+                        (bpy.types.Panel,), attrs)
+        sub_panel_classes.append(SubPanel)
+
+    return PropGroup, PanelClass, sub_panel_classes, ResetOp, PresetOp
 
 
 def _load_panel_def(watch_dir):
@@ -956,13 +979,15 @@ def register_panel():
     if not os.path.exists(_parametric_script):
         print(f"[panel] WARNING: parametric script not found: {_parametric_script}")
 
-    prop_cls, panel_cls, reset_cls, preset_cls = _build_panel_classes(_panel_def.SECTIONS)
+    prop_cls, panel_cls, sub_panels, reset_cls, preset_cls = _build_panel_classes(_panel_def.SECTIONS)
     bpy.utils.register_class(prop_cls)
     bpy.utils.register_class(reset_cls)
     bpy.utils.register_class(preset_cls)
     bpy.utils.register_class(panel_cls)
+    for sp in sub_panels:
+        bpy.utils.register_class(sp)
     bpy.types.Scene.build123d_props = bpy.props.PointerProperty(type=prop_cls)
-    _registered_classes = [prop_cls, reset_cls, preset_cls, panel_cls]
+    _registered_classes = [prop_cls, reset_cls, preset_cls, panel_cls] + sub_panels
     print(f"[panel] Registered panel with {len(_panel_param_keys)} params from {WATCH_DIR}/panel_def.py")
 
     # Eagerly spawn worker so first slider change is fast

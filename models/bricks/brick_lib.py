@@ -28,7 +28,7 @@ from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
     BRICK_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
     CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM,
-    SKIP_CONCAVE, CR_SKIP_CONCAVE, ENABLE_TEXT,
+    SKIP_CONCAVE, CR_SKIP_CONCAVE, ENABLE_STUDS, ENABLE_TEXT,
     STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
     STUD_TEXT_ROTATION,
     bevel_above_z,
@@ -766,18 +766,19 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
             add(_build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z))
 
         # Studs
-        has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-        if has_stud_taper:
-            stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                               stud_taper_height, stud_taper_inset, stud_taper_curve)
-            with Locations([Pos(0, 0, height)]):
-                with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                    add(stud)
-        else:
-            with Locations([Pos(0, 0, height)]):
-                with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                    Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                             align=(Align.CENTER, Align.CENTER, Align.MIN))
+        if ENABLE_STUDS:
+            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
+            if has_stud_taper:
+                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
+                                   stud_taper_height, stud_taper_inset, stud_taper_curve)
+                with Locations([Pos(0, 0, height)]):
+                    with GridLocations(PITCH, PITCH, studs_x, studs_y):
+                        add(stud)
+            else:
+                with Locations([Pos(0, 0, height)]):
+                    with GridLocations(PITCH, PITCH, studs_x, studs_y):
+                        Cylinder(STUD_RADIUS, STUD_HEIGHT,
+                                 align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     result = bp.part
     if ENABLE_FILLET:
@@ -785,7 +786,7 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
                                style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
                                skip_concave=SKIP_CONCAVE)
 
-    if not ENABLE_TEXT:
+    if not ENABLE_TEXT or not ENABLE_STUDS:
         return result
 
     with BuildPart() as final:
@@ -865,16 +866,17 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
                 add(clipped)
 
         # Studs
-        has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-        if has_stud_taper:
-            stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                               stud_taper_height, stud_taper_inset, stud_taper_curve)
-            with Locations([Pos(x, y, height) for x, y in stud_positions]):
-                add(stud)
-        else:
-            with Locations([Pos(x, y, height) for x, y in stud_positions]):
-                Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                         align=(Align.CENTER, Align.CENTER, Align.MIN))
+        if ENABLE_STUDS:
+            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
+            if has_stud_taper:
+                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
+                                   stud_taper_height, stud_taper_inset, stud_taper_curve)
+                with Locations([Pos(x, y, height) for x, y in stud_positions]):
+                    add(stud)
+            else:
+                with Locations([Pos(x, y, height) for x, y in stud_positions]):
+                    Cylinder(STUD_RADIUS, STUD_HEIGHT,
+                             align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     result = bp.part
     if ENABLE_FILLET:
@@ -885,7 +887,7 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
         except ValueError:
             pass  # Cross shapes may have edges too small for OCCT filleter
 
-    if not ENABLE_TEXT:
+    if not ENABLE_TEXT or not ENABLE_STUDS:
         return result
 
     with BuildPart() as final:
@@ -1042,18 +1044,19 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
                 add(ridge)
 
         # Studs on flat portion
-        has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-        if flat_xy:
-            if has_stud_taper:
-                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                                   stud_taper_height, stud_taper_inset,
-                                   stud_taper_curve)
-                with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                    add(stud)
-            else:
-                with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                    Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                             align=(Align.CENTER, Align.CENTER, Align.MIN))
+        if ENABLE_STUDS:
+            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
+            if flat_xy:
+                if has_stud_taper:
+                    stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
+                                       stud_taper_height, stud_taper_inset,
+                                       stud_taper_curve)
+                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
+                        add(stud)
+                else:
+                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
+                        Cylinder(STUD_RADIUS, STUD_HEIGHT,
+                                 align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     result = bp.part
     if ENABLE_FILLET:
@@ -1064,7 +1067,7 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
         except ValueError:
             pass  # Fillet failure on slopes is a known OCCT limitation
 
-    if not ENABLE_TEXT or not flat_xy:
+    if not ENABLE_TEXT or not ENABLE_STUDS or not flat_xy:
         return result
 
     with BuildPart() as final:
@@ -1229,18 +1232,19 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
         if clipped_clutch:
             add(clipped_clutch)
 
-        has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-        if flat_xy:
-            if has_stud_taper:
-                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                                   stud_taper_height, stud_taper_inset,
-                                   stud_taper_curve)
-                with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                    add(stud)
-            else:
-                with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                    Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                             align=(Align.CENTER, Align.CENTER, Align.MIN))
+        if ENABLE_STUDS:
+            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
+            if flat_xy:
+                if has_stud_taper:
+                    stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
+                                       stud_taper_height, stud_taper_inset,
+                                       stud_taper_curve)
+                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
+                        add(stud)
+                else:
+                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
+                        Cylinder(STUD_RADIUS, STUD_HEIGHT,
+                                 align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     result = bp.part
     if ENABLE_FILLET:
@@ -1251,7 +1255,7 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
         except ValueError:
             pass
 
-    if not ENABLE_TEXT or not flat_xy:
+    if not ENABLE_TEXT or not ENABLE_STUDS or not flat_xy:
         return result
 
     with BuildPart() as final:
