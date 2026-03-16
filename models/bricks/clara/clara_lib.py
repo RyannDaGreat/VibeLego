@@ -25,9 +25,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from build123d import (
     Box, Circle, Cylinder, Rectangle, Pos, Rot, Plane,
-    Align, Mode, FontStyle,
+    Align, Keep, Mode, FontStyle,
     BuildPart, BuildSketch, add, Locations, GridLocations,
-    Text, extrude, fillet, loft,
+    Text, extrude, fillet, loft, split,
 )
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
@@ -176,6 +176,44 @@ def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
     return stud.part
 
 
+def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z):
+    """
+    Pure function, specific. Build diagonal lattice struts as a standalone Part.
+
+    Used by both clara_brick (added directly) and clara_slope (clipped to
+    sloped cavity via boolean intersection before adding).
+
+    Args:
+        studs_x (int): Studs along X.
+        studs_y (int): Studs along Y.
+        inner_x (float): Inner cavity width.
+        inner_y (float): Inner cavity height.
+        cavity_z (float): Cavity height (extrusion depth).
+
+    Returns:
+        Part: Lattice geometry, origin at (0, 0, 0).
+
+    Examples:
+        >>> # _build_lattice(2, 4, 12.8, 28.8, 8.6)
+    """
+    strut_thickness = PITCH / math.sqrt(2) - STUD_DIAMETER
+    n_struts = studs_x + studs_y
+    strut_len = (inner_x + inner_y) * 2
+    c_start = -(n_struts - 1) / 2 * PITCH
+    c_values = [c_start + i * PITCH for i in range(n_struts)]
+
+    with BuildPart() as lattice:
+        with BuildSketch():
+            for c in c_values:
+                with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
+                    Rectangle(strut_len, strut_thickness)
+                with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
+                    Rectangle(strut_len, strut_thickness)
+            Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)
+        extrude(amount=cavity_z)
+    return lattice.part
+
+
 def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
                 corner_radius=0, taper_height=0, taper_inset=0,
                 taper_curve="LINEAR",
@@ -242,13 +280,6 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
     top_y = outer_y - 2 * taper_inset if has_taper else outer_y
     top_cr = _clamp_cr(cr, top_x, top_y)
 
-    # Strut geometry -- derived from stud-fit constraint
-    strut_thickness = PITCH / math.sqrt(2) - STUD_DIAMETER
-    n_struts = studs_x + studs_y
-    strut_len = (inner_x + inner_y) * 2  # generous, clipped by intersection
-    c_start = -(n_struts - 1) / 2 * PITCH
-    c_values = [c_start + i * PITCH for i in range(n_struts)]
-
     with BuildPart() as brick:
         # ── Outer shell ──
         if has_taper:
@@ -287,20 +318,8 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
         Box(inner_x, inner_y, cavity_z,
             align=(Align.CENTER, Align.CENTER, Align.MIN), mode=Mode.SUBTRACT)
 
-        # ── Diagonal lattice (2D sketch -> extrude) ──
-        # NOTE: Pos * Rot * Rectangle does NOT work in BuildSketch (rotation
-        # silently ignored). Must use Locations context manager instead.
-        with BuildSketch():
-            for c in c_values:
-                # +45 deg strut along line y - x = c
-                with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
-                    Rectangle(strut_len, strut_thickness)
-                # -45 deg strut along line y + x = c
-                with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
-                    Rectangle(strut_len, strut_thickness)
-            # Clip to cavity bounds (struts fuse with walls)
-            Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)
-        extrude(amount=cavity_z)
+        # ── Diagonal lattice ──
+        add(_build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z))
 
         # ── Studs ──
         has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
@@ -327,6 +346,169 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
         add(result)
         with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
             with GridLocations(PITCH, PITCH, studs_x, studs_y):
+                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
+                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
+                     align=(Align.CENTER, Align.CENTER))
+        extrude(amount=STUD_TEXT_HEIGHT)
+
+    return final.part
+
+
+def clara_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1,
+                corner_radius=0, taper_height=0, taper_inset=0,
+                taper_curve="LINEAR",
+                stud_taper_height=0, stud_taper_inset=0,
+                stud_taper_curve="LINEAR"):
+    """
+    Pure function, specific. Create a Clara slope brick with diagonal lattice.
+
+    Slope descends toward +Y. Only flat_rows of studs retained on the flat
+    deck portion. Lattice struts are clipped to the sloped cavity via boolean
+    intersection.
+
+    Build order (same proven pattern as lego_slope):
+        1. Outer shell (with optional corner_radius/taper) -> split by slope plane
+        2. Cavity box -> split by OFFSET slope plane (FLOOR_THICKNESS gap)
+        3. Shell = sloped_outer - sloped_cavity
+        4. Lattice -> clip to sloped_cavity via &
+        5. Studs on flat portion (with optional stud taper)
+        6. Fillet -> text
+
+    Args:
+        studs_x (int): Studs along X.
+        studs_y (int): Studs along Y (>= 2).
+        height (float): Body height. Default BRICK_HEIGHT.
+        flat_rows (int): Stud rows on the flat top. Default 1.
+        corner_radius (float): 2D corner rounding (mm). Default 0.
+        taper_height (float): Wall taper height (mm). Default 0.
+        taper_inset (float): Wall taper inset (mm). Default 0.
+        taper_curve (str): "LINEAR" or "CURVED".
+        stud_taper_height (float): Stud taper height (mm). Default 0.
+        stud_taper_inset (float): Stud taper inset (mm). Default 0.
+        stud_taper_curve (str): "LINEAR" or "CURVED".
+
+    Returns:
+        Part: Complete Clara slope brick.
+
+    Examples:
+        >>> # clara_slope(2, 2) -> 2x2 slope, 1 flat row
+        >>> # clara_slope(2, 4, flat_rows=2) -> 2x4 slope, 2 flat rows
+        >>> # clara_slope(2, 4, corner_radius=2.0) -> slope with rounded corners
+    """
+    outer_x = studs_x * PITCH - 2 * CLEARANCE
+    outer_y = studs_y * PITCH - 2 * CLEARANCE
+    inner_x = outer_x - 2 * WALL_THICKNESS
+    inner_y = outer_y - 2 * WALL_THICKNESS
+    cavity_z = height - FLOOR_THICKNESS
+
+    # ── Slope planes (same math as lego_slope, battle-tested) ──
+    hinge_y = -outer_y / 2 + flat_rows * PITCH
+    slope_dy = outer_y / 2 - hinge_y
+    slope_dz = height - WALL_THICKNESS
+    normal = (0, slope_dz, slope_dy)
+
+    cut_plane = Plane(
+        origin=(0, hinge_y, height), x_dir=(1, 0, 0), z_dir=normal)
+
+    # Cavity cut plane: offset FLOOR_THICKNESS inward along slope normal
+    normal_mag = math.sqrt(slope_dz**2 + slope_dy**2)
+    cavity_cut_plane = Plane(
+        origin=(0,
+                hinge_y - FLOOR_THICKNESS * slope_dz / normal_mag,
+                height - FLOOR_THICKNESS * slope_dy / normal_mag),
+        x_dir=(1, 0, 0), z_dir=normal)
+
+    # ── Sloped outer shell ──
+    cr = _clamp_cr(corner_radius, outer_x, outer_y)
+    has_taper = taper_height > 0 and taper_inset > 0
+
+    if has_taper or cr > 0:
+        # Build full shell (taper/rounded), then split
+        with BuildPart() as outer_bp:
+            if has_taper:
+                taper_start_z = height - taper_height
+                with BuildSketch(Plane.XY) as sk:
+                    _rounded_rect(sk, outer_x, outer_y, cr)
+                with BuildSketch(Plane.XY.offset(taper_start_z)) as sk:
+                    _rounded_rect(sk, outer_x, outer_y, cr)
+                if taper_curve == "CURVED":
+                    top_x = outer_x - 2 * taper_inset
+                    top_y = outer_y - 2 * taper_inset
+                    for i in range(1, _CURVED_TAPER_STEPS):
+                        t = i / _CURVED_TAPER_STEPS
+                        z = taper_start_z + taper_height * t
+                        inset = taper_inset * _taper_profile(t, "CURVED")
+                        w = outer_x - 2 * inset
+                        h_dim = outer_y - 2 * inset
+                        r = _clamp_cr(cr, w, h_dim)
+                        with BuildSketch(Plane.XY.offset(z)) as sk:
+                            _rounded_rect(sk, w, h_dim, r)
+                top_x = outer_x - 2 * taper_inset
+                top_y = outer_y - 2 * taper_inset
+                top_cr = _clamp_cr(cr, top_x, top_y)
+                with BuildSketch(Plane.XY.offset(height)) as sk:
+                    _rounded_rect(sk, top_x, top_y, top_cr)
+                loft(ruled=True)
+            else:
+                with BuildSketch() as sk:
+                    _rounded_rect(sk, outer_x, outer_y, cr)
+                extrude(amount=height)
+        sloped_outer = split(outer_bp.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
+    else:
+        outer = Box(outer_x, outer_y, height,
+                    align=(Align.CENTER, Align.CENTER, Align.MIN))
+        sloped_outer = split(outer, bisect_by=cut_plane, keep=Keep.BOTTOM)
+
+    # ── Sloped cavity ──
+    cavity = Box(inner_x, inner_y, cavity_z,
+                 align=(Align.CENTER, Align.CENTER, Align.MIN))
+    sloped_cavity = split(cavity, bisect_by=cavity_cut_plane, keep=Keep.BOTTOM)
+
+    shell = sloped_outer - sloped_cavity
+
+    # ── Lattice: build separately, clip to sloped cavity ──
+    lattice = _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z)
+    clipped_lattice = lattice & sloped_cavity
+
+    # ── Flat stud positions (front rows only) ──
+    flat_xy = [((i - (studs_x - 1) / 2) * PITCH,
+                (j - (studs_y - 1) / 2) * PITCH)
+               for i in range(studs_x) for j in range(flat_rows)]
+
+    # ── Assemble ──
+    with BuildPart() as brick:
+        add(shell)
+        add(clipped_lattice)
+
+        # Studs on flat portion (with optional taper)
+        has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
+        if flat_xy:
+            if has_stud_taper:
+                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
+                                   stud_taper_height, stud_taper_inset,
+                                   stud_taper_curve)
+                with Locations([Pos(x, y, height) for x, y in flat_xy]):
+                    add(stud)
+            else:
+                with Locations([Pos(x, y, height) for x, y in flat_xy]):
+                    Cylinder(STUD_RADIUS, STUD_HEIGHT,
+                             align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+    # Fillet above cavity (may fail on slopes — known issue)
+    result = brick.part
+    if ENABLE_FILLET:
+        try:
+            result = fillet_above_z(result, FILLET_RADIUS, z_threshold=cavity_z)
+        except Exception:
+            pass  # Fillet failure on slopes is a known OCCT limitation
+
+    if not ENABLE_TEXT or not flat_xy:
+        return result
+
+    with BuildPart() as final:
+        add(result)
+        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
+            with Locations([Pos(x, y) for x, y in flat_xy]):
                 Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
                      font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
                      align=(Align.CENTER, Align.CENTER))

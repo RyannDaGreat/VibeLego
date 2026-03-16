@@ -71,14 +71,19 @@ def _build(params):
     stud_taper_inset = float(params.get("stud_taper_inset", 0)) if enable_stud_taper else 0
     stud_taper_curve = str(params.get("stud_taper_curve", "LINEAR"))
 
-    return clara_lib.clara_brick(studs_x, studs_y,
-                                  corner_radius=corner_radius,
-                                  taper_height=taper_height,
-                                  taper_inset=taper_inset,
-                                  taper_curve=taper_curve,
-                                  stud_taper_height=stud_taper_height,
-                                  stud_taper_inset=stud_taper_inset,
-                                  stud_taper_curve=stud_taper_curve)
+    shape_kwargs = dict(corner_radius=corner_radius,
+                        taper_height=taper_height, taper_inset=taper_inset,
+                        taper_curve=taper_curve,
+                        stud_taper_height=stud_taper_height,
+                        stud_taper_inset=stud_taper_inset,
+                        stud_taper_curve=stud_taper_curve)
+
+    if params.get("enable_slope", False):
+        flat_rows = int(params.get("slope_flat_rows", 1))
+        return clara_lib.clara_slope(studs_x, studs_y, flat_rows=flat_rows,
+                                      **shape_kwargs)
+
+    return clara_lib.clara_brick(studs_x, studs_y, **shape_kwargs)
 
 
 def run(params, stl_path):

@@ -41,6 +41,23 @@ SECTIONS = [
         "rows": [["studs_x", "studs_y"]],
     },
     {
+        "label": "Slope",
+        "icon": "MESH_CONE",
+        "enable_key": "enable_slope",
+        "params": [
+            {
+                "key": "enable_slope", "json_key": "enable_slope",
+                "type": "bool", "label": "Enable", "default": False,
+            },
+            {
+                "key": "slope_flat_rows", "json_key": "slope_flat_rows",
+                "type": "int", "label": "Flat Rows", "default": 1,
+                "min": 1, "max": 8,
+                "description": "Number of flat stud rows on slope top",
+            },
+        ],
+    },
+    {
         "label": "Studs & Body",
         "icon": "ARROW_LEFTRIGHT",
         "params": [
@@ -165,6 +182,15 @@ PRESETS = [
         "label": "Mini Brick",
         "description": "3D print optimized with tapered walls and tall studs",
         "params": {},  # Matches defaults — no overrides needed
+    },
+    {
+        "key": "MINI_SLOPE",
+        "label": "Mini Slope",
+        "description": "3D print optimized slope with tapered walls and tall studs",
+        "params": {
+            "enable_slope": True,
+            "slope_flat_rows": 1,
+        },
     },
     {
         "key": "LEGO_STANDARD",
