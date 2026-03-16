@@ -16,6 +16,26 @@ When using Claude to write build123d CAD models, there's no way to see the 3D re
 - **`bpy.app.timers`**: Blender's built-in polling mechanism. Register a function that returns a float (seconds until next call) or None (stop).
 - **BlendQuery**: Existing (but stale) Blender addon that does build123d/CadQuery → Blender via subprocess + pickle. Reference implementation, not used directly.
 
+## Brick Anatomy (naming vocabulary)
+
+Standard terms for communicating about brick regions. Use these names in code,
+comments, and conversation for precision.
+
+| Region | Name | Description |
+|--------|------|-------------|
+| Outer rectangular box | **Shell** | Outer walls + ceiling as one solid. Everything except internals and studs |
+| Top flat surface | **Deck** | The ceiling/roof where studs sit |
+| Outer vertical faces | **Walls** | The 4 outer vertical surfaces of the shell |
+| Cylindrical bumps on top | **Studs** | Round pegs on the deck (industry standard term) |
+| Raised text on studs | **Logo** | The "CLARA" embossed text on each stud top |
+| Hollow interior (open bottom) | **Cavity** | The empty space inside, open from below |
+| ±45° diagonal ribs (Clara) | **Lattice** | The crisscross strut pattern filling the cavity |
+| Single diagonal rib | **Strut** | One thin wall at 45°, running wall-to-wall |
+| Diamond opening in lattice | **Cell** | One opening where a stud fits (inscribed circle = STUD_DIAMETER) |
+| Anti-stud cylinders (standard) | **Tubes** | Round hollow cylinders in standard bricks (not used in Clara) |
+| Thin rail (1-wide bricks) | **Ridge** | Bottom grip rail for 1-wide standard bricks |
+| Rounded edges | **Fillets** | Small radius on shell/stud edges (not on lattice) |
+
 ## Architecture
 
 ### Chosen Approach: Subprocess + STL + File Watcher
