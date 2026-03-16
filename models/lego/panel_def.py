@@ -37,6 +37,7 @@ SECTIONS = [
                     ("BRICK", "Brick", "Standard brick height"),
                     ("PLATE", "Plate", "1/3 brick height"),
                     ("SLOPE", "Slope", "Slope/wedge brick"),
+                    ("CLARA", "Clara", "Diagonal lattice clutch"),
                 ],
             },
             {

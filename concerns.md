@@ -299,3 +299,43 @@ OCCT boolean union handles this poorly — the shared face produces degenerate
 triangles in tessellation. Especially bad when both shapes have the same
 rectangular footprint. Solution: make one shape contain the other (overlap or
 subtraction), don't butt them edge-to-edge.
+
+## 2026-03-16: Clara Brick Lattice Implementation
+
+### Design
+Clara bricks use diagonal lattice clutch instead of cylindrical tubes. 45-degree
+crisscross struts form diamond openings that exactly fit studs (inscribed circle =
+STUD_DIAMETER). The lattice is fully wall-connected — no floating parts. Cross-section
+at any Z through the bottom is one contiguous region.
+
+### Math verification
+- Strut thickness derived: `t = PITCH/sqrt(2) - STUD_DIAMETER = 0.857 mm`
+- Diamond inscribed circle = `PITCH/(2*sqrt(2)) - t/2 = STUD_RADIUS` (proven algebraically and numerically)
+- All stud-strut pairs verified tangent (gap = 0.000000 mm) across sizes 1x1 through 8x16
+- 7 automated tests pass: tangent contact, no overlap, diamond fit, strut count, wall reach, symmetry
+
+### Implementation
+- `clara_brick()` in lego_lib.py: 2D sketch approach with `Pos * Rot * Rectangle` for rotated struts
+- Clipped to cavity via `Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)` — struts fuse with walls
+- Build succeeded: 540 faces for 2x4 Clara brick
+- VLM renders confirm: studs on top, lattice visible inside cavity from below, walls intact
+
+### Files added
+- `models/lego/lego_lib.py` — added `clara_brick()`, `Rot` import
+- `models/lego/clara_2x4.py` — test script
+- `models/lego/panel_def.py` — added CLARA enum to brick_type
+- `models/lego/parametric.py` — added CLARA dispatch
+- `models/lego/tests/test_clara_lattice.py` — 7 geometry math tests
+
+### Bug: Pos * Rot * Rectangle silently fails in BuildSketch
+- **Symptom**: Clara brick rendered with only 2 large slots instead of 6x6 crisscross lattice. 540 faces (same as tube brick) — lattice wasn't being created.
+- **Root cause**: `Pos(x, y) * Rot(0, 0, 45) * Rectangle(len, width)` (algebra mode) does NOT apply transforms inside `BuildSketch`. The rotation and position are silently ignored. The rectangle stays at origin, unrotated. All 12 "struts" were stacked as a single unrotated rectangle at origin.
+- **Proof**: Test showed single rotated rectangle bbox = [-10, 10] x [-0.5, 0.5] (unrotated!) and Pos(5, 0) had no effect (center still at 0).
+- **Fix**: Use `with Locations([Pos(x, y) * Rot(0, 0, angle)]):` context manager instead. This works correctly — verified bbox ≈ [-7.42, 7.42] x [-7.42, 7.42] for 45° rotation.
+- **Lesson**: Algebra mode `Location * Shape` works in `BuildPart` but NOT in `BuildSketch`. Always use `Locations` context manager for positioned/rotated shapes in sketches.
+
+### Bug: Fillet fails on lattice strut edges
+- **Symptom**: `fillet_above_z(brick.part, 0.15)` raises `ValueError: Failed creating a fillet` after adding the lattice.
+- **Root cause**: Lattice struts are 0.857mm wide. Where +45° and −45° struts intersect, acute angles create edges shorter than the fillet radius (0.15mm). OCCT can't fillet these.
+- **Fix**: Set fillet `z_threshold=cavity_z` so only edges above the cavity (studs, outer box top) are filleted. Lattice edges at Z=0 to cavity_z are skipped.
+- **Result**: 613 faces (vs 540 broken), correct diamond lattice visible in renders.

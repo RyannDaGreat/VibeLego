@@ -97,6 +97,5 @@ echo "Edit your source file — changes will appear in Blender automatically."
 echo ""
 
 "$BLENDER_CMD" \
-    --factory-startup \
     --python "$WATCHER_SCRIPT" \
     -- "$SOURCE_FILE" "$STL_PATH"

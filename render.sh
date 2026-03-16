@@ -87,6 +87,8 @@ echo "Rendering 4 diagnostic angles..."
     --factory-startup \
     --python "$RENDER_SCRIPT" \
     -- "$STL_PATH" "$OUTPUT_DIR"
+# NOTE: render.sh keeps --factory-startup because headless renders should
+# not be affected by user addons/startup files (consistency + speed).
 
 echo ""
 echo "Renders saved to: $OUTPUT_DIR/"

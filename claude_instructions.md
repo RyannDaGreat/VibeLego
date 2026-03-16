@@ -83,7 +83,10 @@ build123d_tests/
       plate_1x1.py          # 1x1 plate (1/3 height)
       plate_2x4.py          # 2x4 plate
       slope_2x2.py          # 2x2 slope brick (45-degree)
+      clara_2x4.py          # Clara brick (diagonal lattice clutch)
       collection.py         # All brick types in display grid
+      tests/                # Geometry math verification
+        test_clara_lattice.py  # Lattice tangent/overlap/symmetry tests
   renders/                  # Multi-angle render output (gitignored)
   docs/                     # Reports and documentation
     architecture.html       # Architecture plan + alternatives report
@@ -135,6 +138,36 @@ Blender N-sidebar ("build123d" tab)
 - Font: bold sans-serif, centered on stud top
 - Implementation: `Text("CLARA", font_size, font_style=FontStyle.BOLD)` + `extrude(0.1)` on stud top face
 
+### Clara Brick Lattice (Diagonal Clutch)
+
+Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a different clutch mechanism optimized for 3D printing. Similar to Montini bricks, but with diagonals in BOTH directions (Montini only has one direction).
+
+**Requirements** (user-specified):
+- 45° crisscross struts forming diamonds on the underside
+- Diamond openings exactly fit the stud (inscribed circle = STUD_DIAMETER) — tangent contact, no overlap, no gap
+- For a 2x4: 6 diagonal struts per direction (12 total)
+- Struts run continuously from wall to wall — one unbroken strip per strut
+- **Fully wall-connected**: no floating parts. Z-plane cross-section through the bottom is ONE contiguous region (walls + struts). This is NOT like LEGO tubes which float in the middle.
+- It's a 45° rotated grid of squares superimposed on the bottom
+- More 3D-print-friendly than tubes (no unsupported overhangs)
+- Struts must be optimally wide but non-intersecting with studs (tangent only)
+
+**Math**:
+- Strut thickness: `t = PITCH / √2 − STUD_DIAMETER` (≈ 0.857 mm at standard dims)
+- Struts per direction: `studs_x + studs_y` (6 for a 2x4)
+- Strut c-values (both families): `c_start + i * PITCH` for `i = 0..n-1`, where `c_start = −(n−1)/2 * PITCH`
+- +45° strut at c: center at `(−c/2, c/2)`, rotated 45°. Line: `y − x = c`
+- −45° strut at c: center at `(c/2, c/2)`, rotated −45°. Line: `y + x = c`
+- Diamond inscribed circle radius = `PITCH/(2√2) − t/2 = STUD_DIAMETER/2` (proven algebraically)
+
+**Implementation** (`clara_brick()` in `lego_lib.py`):
+1. Shell: solid outer box − cavity (same as `lego_brick`)
+2. Lattice: 2D sketch with `Locations([Pos * Rot])` context managers (NOT algebra `Pos * Rot * Shape` which silently fails in sketches), clipped with `Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)`, extruded to `cavity_z`
+3. Fillet threshold = `cavity_z` (not 0) — lattice strut edges are too thin for OCCT filleter
+4. Studs, text — same as `lego_brick`
+
+**Tests**: `models/lego/tests/test_clara_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
+
 ### Slope Bricks
 - `lego_slope(studs_x, studs_y, height, flat_rows)`: creates wedge/slope bricks
 - Build order: solid outer box → `split` slope → subtract cavity (split by OFFSET plane) → tubes (sketch → extrude → `& sloped_cavity`) → studs → fillet → text
@@ -160,7 +193,7 @@ Blender N-sidebar ("build123d" tab)
 - Claude reads PNGs via Read tool for visual verification
 
 ### lego_lib.py Architecture (2D sketch → extrude)
-- **3 functions total**: `fillet_above_z()` (general), `lego_brick()`, `lego_slope()`
+- **4 functions total**: `fillet_above_z()` (general), `lego_brick()`, `clara_brick()`, `lego_slope()`
 - Standard bricks: 2D sketch (walls via `offset()` + tubes via `GridLocations` circles) → `extrude` → ceiling `Box` → ridge (if 1-wide) → studs → fillet → text
 - Slopes: shell construction (solid outer `Box` → `split` slope → subtract trimmed cavity) + tube sketch → extrude → clip via `&` → studs → fillet → text
 - `fillet_above_z(part, radius, z_threshold)` — fillet edges above a Z plane
@@ -186,6 +219,9 @@ Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire exist
 
 ### Coplanar Face Caveat
 Never construct two shapes that share an entire planar face and then boolean-union them. OCCT produces degenerate triangles at the shared boundary, causing missing/flipped faces in tessellation (STL export). Example: wall extrusion (Z=0 to 8.6) + ceiling box (Z=8.6 to 9.6) → degenerate triangles at Z=8.6. Fix: use subtraction instead (solid box - cavity), so the ceiling is integral.
+
+### Algebra Mode Location * Shape Caveat (BuildSketch)
+`Pos(x, y) * Rot(0, 0, angle) * Rectangle(w, h)` (algebra mode) does NOT apply the transform in a `BuildSketch`. The rotation and position are silently ignored — the rectangle stays at origin, unrotated. Use `with Locations([Pos(x, y) * Rot(0, 0, angle)]):` context manager instead. This only affects sketch mode — algebra mode works fine in `BuildPart`.
 
 ### Locations + BuildSketch Caveat
 `Locations([Pos(0, 0, z)])` does **NOT** move a `BuildSketch(Plane.XY)` to Z=z. The sketch plane stays at Z=0 regardless. Use `BuildSketch(Plane.XY.offset(z))` to place a sketch at a specific Z. `Locations` only moves 3D shapes and sketch *contents* (shapes within a sketch), not the sketch plane itself.

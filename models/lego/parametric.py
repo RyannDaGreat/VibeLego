@@ -93,6 +93,8 @@ def _build(params):
         return lego_lib.lego_slope(studs_x, studs_y, flat_rows=flat_rows)
     elif brick_type == "PLATE":
         return lego_lib.lego_brick(studs_x, studs_y, height=lego_lib.PLATE_HEIGHT)
+    elif brick_type == "CLARA":
+        return lego_lib.clara_brick(studs_x, studs_y)
     else:
         return lego_lib.lego_brick(studs_x, studs_y)
 
