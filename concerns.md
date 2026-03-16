@@ -143,3 +143,91 @@ Launched 7 agents to investigate all angles before writing any code:
 - Coplanar faces cause failures — extend cutting tools by epsilon beyond boundaries
 - Near-tangent surfaces fail — avoid shapes that just graze each other
 - `Part & Part` returns `Compound` (not `Part`) — fine for `add()` but be aware
+
+## 2026-03-15: 2D Sketch Architecture Rewrite
+
+### What changed
+- Rewrote `lego_lib.py` from 556 lines to 222 lines (60% reduction)
+- Eliminated 9 helper functions: `centered_grid`, `hollow_box`, `cylinders_at`,
+  `hollow_cylinders_at`, `raised_text_at`, `lego_brick_body`, `lego_studs`,
+  `lego_stud_text`, `lego_bottom_tubes`, `lego_bottom_ridge`
+- Only `fillet_above_z()` kept as general helper (used in both brick and slope)
+- Two main functions remain: `lego_brick()` and `lego_slope()`
+
+### Architecture: 2D sketch → extrude for standard bricks
+- Cross-section sketch defines walls (Rectangle → offset → subtract) + tubes
+  (GridLocations → Circle - Circle) in 2D
+- Single `extrude(amount=cavity_z)` creates all vertical structure
+- Ceiling box added separately (different thickness from walls: FLOOR_THICKNESS
+  vs WALL_THICKNESS)
+- Ridge added as 3D Box (doesn't extend full cavity height, can't be in sketch)
+- Studs via nested `Locations([Pos(0,0,height)]) → GridLocations → Cylinder`
+- Text in separate BuildPart after filleting (OCCT filleter chokes on tiny text edges)
+
+### Why the slope can't use pure 2D sketch approach
+- The slope cuts through the ceiling, exposing the cavity where slope_Z < ceiling_Z
+- The 2D sketch creates implicit cavities (void between walls), which can't be
+  "cut" by a plane — the cavity is just absence of material
+- The slope MUST use explicit shell construction (solid outer - trimmed cavity)
+  to maintain FLOOR_THICKNESS of material between slope face and cavity
+- Tubes in the slope are built from a sketch but extruded separately and clipped
+  with `& sloped_cavity` — same as before but using GridLocations + Circle sketch
+  instead of `hollow_cylinders_at(centered_grid(...))`
+
+### Key learnings from the rewrite
+
+#### `offset()` in BuildSketch replaces hollow_box for walls
+- `Rectangle(outer_x, outer_y)` → `offset(perimeter, amount=-WALL_THICKNESS,
+  kind=Kind.INTERSECTION, mode=Mode.SUBTRACT)` creates wall frame in 2D
+- `Kind.INTERSECTION` gives sharp corners (correct for bricks)
+- `Kind.ARC` would give rounded inside corners (wrong for bricks)
+- LIMITATION: `offset()` applies uniform thickness. Our wall (1.5mm) ≠ floor
+  (1.0mm), so the ceiling must be a separate Box, not part of the offset
+
+#### GridLocations replaces centered_grid
+- `GridLocations(PITCH, PITCH, nx, ny)` is identical to `centered_grid(nx, ny, PITCH)`
+- BUT: no Z offset parameter. Handle Z via `Locations([Pos(0,0,z)])` wrapping
+- Nested location contexts compose transforms: `Locations([Pos]) → GridLocations`
+  places copies at grid positions offset by the Pos
+- Verified via scratchpad: bounding boxes match exactly between both approaches
+
+#### Pos(x,y,z) * Shape works inside BuildPart
+- `Pos(0, 0, z) * Box(...)` creates a positioned shape and adds it to the context
+- Cleaner than `with Locations([Pos(...)]):` for single-position placement
+- Already used in the pre-rewrite code for ridge placement
+
+#### Standalone BuildPart for intermediate geometry
+- For slope tubes: `with BuildPart() as tb: ...` creates tubes outside the main
+  brick BuildPart, allowing `tb.part & sloped_cavity` before `add(clipped)`
+- Alternative: `mode=Mode.PRIVATE` inside the same BuildPart (not tested)
+
+#### Text placement via nested context managers
+- `Locations([Pos(z)]) → GridLocations → BuildSketch(Plane.XY) → Text → extrude`
+- The sketch plane is relative to the location context, so text ends up at
+  the correct Z position without computing explicit positions
+- For slope text (non-grid positions), explicit `Locations([Pos(x,y,z)])` used
+
+### VLM verification results (all pass)
+| Brick | Faces | Status |
+|-------|-------|--------|
+| 2x4 brick | 107 | Clean |
+| 1x1 brick | 48 | Clean |
+| 1x2 brick | 53 | Clean (ridge verified) |
+| 1x4 brick | 63 | Clean (ridge verified) |
+| 2x2 brick | 71 | Clean (1 tube verified) |
+| 2x3 brick | 89 | Clean |
+| 1x1 plate | 48 | Clean |
+| 2x4 plate | 107 | Clean (thin body) |
+| 2x2 slope | 131 | Clean (tube clipping, cavity walls) |
+| Collection | 48 parts | All types render |
+
+### What NOT to do (lessons preserved from earlier)
+- **Never use `split()` on hollow cylinders** — produces non-manifold topology
+  that corrupts subsequent booleans. Use `&` (intersection) instead.
+- **Never use `Mode.INTERSECT` in BuildPart for clipping** — it replaces the
+  ENTIRE accumulated solid, not just the new shape.
+- **Always fillet BEFORE text** — OCCT filleter fails on sub-0.15mm text edges.
+- **Always offset the cavity cut plane in slopes** — without it, zero material
+  between slope face and cavity interior. Use `FLOOR_THICKNESS * normal/|normal|`.
+- **Always verify with VLM after geometry changes** — single-angle views are
+  misleading. The 14-angle diagnostic render catches what iso views miss.

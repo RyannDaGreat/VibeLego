@@ -108,12 +108,12 @@ build123d_tests/
 
 ### Slope Bricks
 - `lego_slope(studs_x, studs_y, height, flat_rows)`: creates wedge/slope bricks
-- Build order: solid outer box → cut slope → subtract slope-trimmed cavity → add studs/tubes
+- Build order: solid outer box → `split` slope → subtract cavity (split by OFFSET plane) → tubes (sketch → extrude → `& sloped_cavity`) → studs → fillet → text
 - Slope terminates at `Z=WALL_THICKNESS` (not Z=0) — creates realistic lip at low end like Lego 3039
-- Uses `split()` with a custom `Plane` to cut the angled surface
-- Cavity also split by the same plane to prevent exposed interior through slope face
+- Cavity cut plane is offset INWARD by `FLOOR_THICKNESS` along slope normal — ensures solid material between slope face and interior everywhere
+- **Cannot use pure 2D sketch approach** for slopes — the implicit cavity can't be trimmed by a plane (see concerns.md for full explanation)
 - Studs only on the flat (non-sloped) portion
-- Bottom tubes/ridges still present, fillets applied (skip Z=0)
+- Tubes clipped to cavity via `&` (boolean intersection) — never use `split()` on tubes
 
 ### Collection Display
 - `collection.py`: generates all brick types in a grid layout
@@ -130,12 +130,10 @@ build123d_tests/
 - 1024×1024 PNG output to `renders/` directory
 - Claude reads PNGs via Read tool for visual verification
 
-### General Geometry Functions (reusable outside lego_lib)
-- `centered_grid(nx, ny, spacing, z)` — grid positions centered on XY origin
-- `hollow_box(outer_x, outer_y, outer_z, wall, floor)` — shell with cavity
-- `cylinders_at(radius, height, positions)` — cylinders at arbitrary positions
-- `hollow_cylinders_at(outer_r, inner_r, height, positions)` — tubes at positions
-- `raised_text_at(text, font_size, height, positions)` — extruded text at positions (OCCT font→B-Rep, no SVG intermediate)
+### lego_lib.py Architecture (2D sketch → extrude)
+- **3 functions total**: `fillet_above_z()` (general), `lego_brick()`, `lego_slope()`
+- Standard bricks: 2D sketch (walls via `offset()` + tubes via `GridLocations` circles) → `extrude` → ceiling `Box` → ridge (if 1-wide) → studs → fillet → text
+- Slopes: shell construction (solid outer `Box` → `split` slope → subtract trimmed cavity) + tube sketch → extrude → clip via `&` → studs → fillet → text
 - `fillet_above_z(part, radius, z_threshold)` — fillet edges above a Z plane
 
 ## build123d API Quick Reference (for Claude)
@@ -157,10 +155,10 @@ Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire exist
 ### split() Caveat
 `split()` does NOT call `clean()` (unlike `fuse`/`cut`/`intersect`). Splitting hollow geometry (e.g., tubes) produces non-manifold topology that corrupts subsequent boolean unions. Use `&` for clipping instead, or call `.clean()` on split results.
 
-### Built-in Alternatives to Custom Helpers
-- **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — replaces manual grid position calculation
-- **`offset(face, -thickness, kind=Kind.INTERSECTION)`** — hollows out a solid (square corners)
-- **`extrude(sketch, amount, mode=Mode.INTERSECT)`** — clip to an extruded profile
+### Built-in Features Used in lego_lib.py
+- **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — centered grid positioning (replaces manual centered_grid function). No Z offset — wrap with `Locations([Pos(0,0,z)])` for Z.
+- **`offset(shape, amount, kind=Kind.INTERSECTION)`** — in 2D sketch: shrinks a rectangle to create wall profile. `Kind.INTERSECTION` = sharp corners, `Kind.ARC` = rounded.
+- **`Pos(x,y,z) * Shape`** — position a shape at a location inside BuildPart. Cleaner than `Locations` for single positions.
 - **`Compound([parts])`** — groups without boolean (vs `+` which fuses)
 
 ### Cheat Sheet Highlights
