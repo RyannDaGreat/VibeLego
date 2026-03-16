@@ -231,7 +231,7 @@ LEGO panel (Blender N-sidebar, "build123d" tab):
   ├── Walls: wall_thickness, floor_thickness, clearance
   ├── Internals: tube_outer_diameter, tube_inner_diameter, ridge_width/height
   ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
-  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom
+  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom, skip_concave
   └── [✓] Anatomy: show_anatomy, region selector dropdown
 
 Clara panel (same tab, different layout):
@@ -244,7 +244,7 @@ Clara panel (same tab, different layout):
   ├── [✓] Wall Taper: enable_wall_taper, height, inset, curve (LINEAR/CURVED)
   ├── [✓] Stud Taper: enable_stud_taper, height, inset, curve (LINEAR/CURVED)
   ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
-  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom
+  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom, skip_concave
   └── [✓] Anatomy: show_anatomy, region selector dropdown
   [✓] = toggleable section (enable_key pattern, see below)
 ```
@@ -321,7 +321,7 @@ Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a diff
 - Diamond inscribed circle radius = `PITCH/(2√2) − t/2 = STUD_DIAMETER/2` (proven algebraically)
 
 **3D Printing Features** (Clara-specific, in "3D Printing" panel section):
-- **Corner radius** (`corner_radius`): 2D rounding of the brick outline (like CSS `border-radius`). Visible from top-down view. Uses `fillet(sk.vertices(), radius)` on the outer sketch. Inner cavity stays sharp — thicker corners = stronger for printing. Clamped to half the smallest outer dimension.
+- **Corner radius** (`corner_radius`): 2D rounding of the brick outline (like CSS `border-radius`). Visible from top-down view. Uses `RectangleRounded(w, h, r)` for the outer sketch. Inner cavity stays sharp — thicker corners = stronger for printing. Clamped to half the smallest outer dimension.
 - **Wall taper** (`taper_height` + `taper_inset` + `taper_curve`): Top portion of outer walls slopes inward. LINEAR = straight line. CURVED = quarter-circle profile `f(t) = 1 - sqrt(1 - t^2)` — tangent to wall at bottom, tangent to deck at top, no inflection point. Curved uses 8 intermediate loft profiles.
 - **Stud taper** (`stud_taper_height` + `stud_taper_inset` + `stud_taper_curve`): Top portion of studs tapers inward (radius decreases). Same LINEAR/CURVED options. Built as a standalone lofted Part, placed via `add()` + `GridLocations`.
 - When no taper/radius is active, `clara_brick()` uses the fast `Box()` path (no loft overhead).
@@ -386,8 +386,9 @@ with `sloped_cavity`. Same pattern as LEGO slope tubes.
 ### Geometry Library Architecture (2D sketch -> extrude)
 
 Shared code in `models/bricks/common.py`:
-- `fillet_above_z(part, radius, z_threshold)` — fillet edges above a Z plane
-- All shared constants: PITCH, STUD_DIAMETER, STUD_HEIGHT, BRICK_HEIGHT, etc.
+- `bevel_above_z(part, radius, z_threshold, style, include_bottom, skip_concave)` — fillet or chamfer edges. Uses `filter_by_position(Axis.Z, ...)` for Z-threshold and `Edge.is_interior` for concavity detection. Handles boundary edges (<2 adjacent faces) gracefully.
+- All shared constants: PITCH, STUD_DIAMETER, STUD_HEIGHT, BRICK_HEIGHT, SKIP_CONCAVE, etc.
+- `fillet_above_z` kept as backwards compatibility alias
 
 LEGO system (`models/bricks/lego/lego_lib.py`):
 - `lego_brick()`, `lego_slope()` — import shared constants from common.py

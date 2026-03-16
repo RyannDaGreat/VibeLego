@@ -440,3 +440,66 @@ Key findings:
 | Corner+wall+stud all curved | 781 |
 | LEGO default (unchanged) | 541 |
 | Lattice tests | 7/7 |
+
+## 2026-03-16: Bulldog Mode — Deep Refactoring
+
+### Wave 1: Library Exploration (10 SONNET agents)
+Key discoveries:
+- `RectangleRounded(w, h, r)` — direct replacement for manual `Rectangle + fillet(vertices)`
+- `filter_by_position(Axis.Z, min, max)` — replaces manual list comprehension for Z-threshold edge filtering
+- `Edge.is_interior` — built-in concavity detector. Offsets adjacent faces, checks intersection. True = concave (interior) edge. **Caveat**: crashes with `IndexError` on boundary edges with <2 adjacent faces — needs try/except guard.
+- `Solid.max_fillet(edges)` — binary-searches for maximum valid fillet radius. Could replace silent `except: pass` on slope fillets (not applied yet).
+- `Cone(r1, r2, h)` — creates frustum directly. Could replace loft for LINEAR stud taper (not applied yet).
+- `extrude(taper=angle_deg)` — draft angle extrusion. Could replace loft for LINEAR wall taper when no corner radius (not applied yet).
+
+### Wave 2: Code Review (10 SONNET agents)
+20 agents total across two waves. Key findings applied:
+
+**Bugs fixed:**
+- `lego_slope` Text call missing `font=STUD_TEXT_FONT` — custom font was silently ignored on slopes
+- `_kill_worker` didn't catch `subprocess.TimeoutExpired` — hung worker left `_worker` non-None, permanently blocking future builds
+- `setattr(common_mod, jk, val)` unconditional — LEGO tube params were polluting `common` module namespace
+- `panel_common.py` FILLET_BOTTOM default hardcoded `False` instead of using imported constant
+- `derived_constants` called `compute()` twice for same value (once for mod, once for lib_mod)
+
+**Dead code removed:**
+- `LEGO_EXTRA_OVERRIDES` in `lego/parametric.py` — all 4 params already covered by main SECTIONS loop
+- `row_keys` set in `blender_watcher.py` — computed but never referenced
+- `_reapply_anatomy_if_active()` call in `main()` — anatomy always off at startup
+
+**Simplifications:**
+- `_rounded_rect` now uses `RectangleRounded(w, h, r)` — dropped `fillet` import and `sketch` parameter
+- `bevel_above_z` now uses `filter_by_position(Axis.Z, ...)` instead of manual list comprehension
+- `except Exception` narrowed to `except ValueError` in `clara_slope` fillet (known OCCT failure)
+- 7 docstring labels corrected (Pure→Query, general→specific) in `blender_watcher.py`
+
+**New feature: Skip Concave toggle (SKIP_CONCAVE)**
+- Uses `Edge.is_interior` to detect concave edges (stud-deck junctions)
+- Panel checkbox in Fillet section: "Skip Concave" — rounds only exterior corners
+- Clara 2x4: 613 faces (normal) → 605 faces (skip concave)
+- LEGO 2x4: 541 faces (normal) → 515 faces (skip concave)
+- Boundary edge guard: `is_interior` crashes on edges with <2 faces → caught with `try/except IndexError`
+
+### Integration Test Results
+| Config | Faces |
+|--------|-------|
+| Clara 2x4 | 613 |
+| Clara chamfer | 613 |
+| Clara slope | 251 |
+| Clara skip_concave | 605 |
+| Clara corner_radius | 621 |
+| Clara taper | 617 |
+| LEGO 2x4 | 541 |
+| LEGO 2x2 plate | 285 |
+| LEGO slope | 144 |
+| LEGO skip_concave | 515 |
+| LEGO fillet_bottom | 563 |
+| Lattice tests | 7/7 |
+
+### Findings NOT applied (deferred)
+- `Cone(r1, r2, h)` for LINEAR stud taper — works but CURVED still needs loft, so benefit is small
+- `Solid.max_fillet` for slope fillet fallback — would add complexity, current `except ValueError: pass` is pragmatic
+- `_panel_rebuild_pending` global removal — correct but touches delicate debounce logic
+- `PresetOp` dead no-op removal — safe but low priority
+- `render_preview.py` bugs (wrong modifier type, missing `use_nodes`) — these are Blender-side, not geometry
+- `build_worker.py` unguarded `json.loads` — worker currently handles this via process restart

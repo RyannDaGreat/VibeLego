@@ -101,7 +101,7 @@ Blender opens with a **build123d** sidebar panel (press `N` if hidden). Adjust s
 ### Shared Features
 
 - **Slope bricks**: Wedge with configurable flat rows
-- **Fillet/Chamfer**: Rounded or straight 45° bevels on all edges. Bottom edge toggle for 3D printing
+- **Fillet/Chamfer**: Rounded or straight 45° bevels on all edges. Bottom edge toggle for 3D printing. Skip concave toggle for exterior-only rounding
 - **Stud text**: Raised embossed text ("CLARA" / "LEGO") with configurable font, size, rotation
 - **Anatomy highlight**: Viewport coloring by brick region (studs, deck, walls, lattice, tubes) for learning and debugging
 
