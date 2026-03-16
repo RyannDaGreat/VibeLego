@@ -131,6 +131,7 @@ def setup_viewport():
 ANATOMY_COLOR_ATTR_NAME = "anatomy_region"
 _anatomy_colors = None        # dict: region -> RGBA, from panel_def.ANATOMY_COLORS
 _anatomy_region_items = None  # list of enum tuples, from panel_def.ANATOMY_REGION_ITEMS
+_anatomy_region_groups = None  # dict: group_key -> [child_keys], from panel_def
 _classify_face_fn = None      # callable(mesh, poly, params) -> str
 
 
@@ -168,12 +169,18 @@ def _apply_anatomy_colors(obj, params, highlight_region="ALL"):
     )
     mesh.color_attributes.active = color_attr
 
+    # Resolve group regions (e.g. "walls_all" -> {"walls", "taper"})
+    groups = _anatomy_region_groups or {}
+    match_set = set(groups[highlight_region]) if highlight_region in groups else None
+
     # Classify and color each face
     color_data = color_attr.data
     for poly in mesh.polygons:
         region = _classify_face_fn(mesh, poly, params)
         if highlight_region == "ALL":
             color = _anatomy_colors.get(region, dimmed)
+        elif match_set is not None:
+            color = _anatomy_colors.get(region, dimmed) if region in match_set else dimmed
         else:
             color = _anatomy_colors.get(region, dimmed) if region == highlight_region else dimmed
         for loop_idx in poly.loop_indices:
@@ -839,7 +846,7 @@ def register_panel():
     from panel_def if available.
     """
     global _panel_def, _parametric_script, _registered_classes
-    global _anatomy_colors, _anatomy_region_items, _classify_face_fn
+    global _anatomy_colors, _anatomy_region_items, _anatomy_region_groups, _classify_face_fn
 
     _panel_def = _load_panel_def(WATCH_DIR)
     if _panel_def is None:
@@ -850,6 +857,7 @@ def register_panel():
     _classify_face_fn = getattr(_panel_def, "classify_face", None)
     _anatomy_colors = getattr(_panel_def, "ANATOMY_COLORS", None)
     _anatomy_region_items = getattr(_panel_def, "ANATOMY_REGION_ITEMS", None)
+    _anatomy_region_groups = getattr(_panel_def, "ANATOMY_REGION_GROUPS", None)
     if _classify_face_fn:
         print("[panel] Anatomy highlight available")
 

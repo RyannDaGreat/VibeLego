@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from panel_common import (
     WALLS_SECTION, text_section, POLISH_SECTION,
-    classify_face, ANATOMY_COLORS, ANATOMY_REGION_ITEMS,
+    classify_face, ANATOMY_COLORS, ANATOMY_REGION_ITEMS, ANATOMY_REGION_GROUPS,
 )
 
 # Relative to this file's directory

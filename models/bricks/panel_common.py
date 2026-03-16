@@ -113,24 +113,40 @@ POLISH_SECTION = {
 # toggle. Shared by all brick systems (classification is geometry-based).
 
 ANATOMY_COLORS = {
-    "studs":     (0.90, 0.30, 0.30, 1.0),  # red
-    "logo":      (0.95, 0.70, 0.20, 1.0),  # orange/gold
-    "deck":      (0.30, 0.75, 0.40, 1.0),  # green
-    "walls":     (0.35, 0.55, 0.90, 1.0),  # blue
-    "internals": (0.70, 0.40, 0.85, 1.0),  # purple (tubes or lattice)
-    "base":      (0.50, 0.50, 0.50, 1.0),  # gray (bottom face at Z=0)
-    "default":   (0.85, 0.85, 0.85, 1.0),  # light gray (unclassified/fillets)
+    "studs":       (0.90, 0.30, 0.30, 1.0),  # red
+    "stud_taper":  (0.95, 0.55, 0.55, 1.0),  # pink (sub-region of studs)
+    "logo":        (0.95, 0.70, 0.20, 1.0),  # orange/gold
+    "deck":        (0.30, 0.75, 0.40, 1.0),  # green
+    "walls":       (0.35, 0.55, 0.90, 1.0),  # blue
+    "taper":       (0.50, 0.75, 0.95, 1.0),  # light blue (sub-region of walls)
+    "internals":   (0.70, 0.40, 0.85, 1.0),  # purple (tubes or lattice)
+    "base":        (0.50, 0.50, 0.50, 1.0),  # gray (bottom face at Z=0)
+    "default":     (0.85, 0.85, 0.85, 1.0),  # light gray (unclassified/fillets)
+}
+
+# Regions are NOT mutually exclusive -- they can overlap (parent/child).
+# A parent region (e.g. "walls_all") matches all its children ("walls", "taper").
+# When "ALL" is selected, each face gets its most-specific region's color.
+# When a parent is selected, child faces keep their specific colors, rest is gray.
+# When a leaf is selected, only that specific sub-region is colored.
+ANATOMY_REGION_GROUPS = {
+    "walls_all": ["walls", "taper"],
+    "studs_all": ["studs", "stud_taper"],
 }
 
 ANATOMY_REGION_ITEMS = [
-    ("ALL",       "All Regions",  "Color all regions simultaneously"),
-    ("studs",     "Studs",        "Cylindrical bumps on top of the brick"),
-    ("logo",      "Logo",         "Raised text on each stud top"),
-    ("deck",      "Deck",         "Flat top surface where studs sit"),
-    ("walls",     "Walls",        "Outer vertical surfaces of the shell"),
-    ("internals", "Internals",    "Cavity features: tubes (LEGO) or lattice (Clara)"),
-    ("base",      "Base",         "Bottom face at Z=0"),
-    ("default",   "Fillets/Other","Unclassified faces (fillets, transitions)"),
+    ("ALL",        "All Regions",     "Color all regions simultaneously"),
+    ("studs_all",  "Studs (all)",     "All stud faces including tapered zone"),
+    ("studs",      "Studs (straight)","Straight cylindrical portion of studs"),
+    ("stud_taper", "Stud Taper",      "Tapered zone at stud tops"),
+    ("logo",       "Logo",            "Raised text on each stud top"),
+    ("deck",       "Deck",            "Flat top surface where studs sit"),
+    ("walls_all",  "Walls (all)",     "All outer wall faces including tapered zone"),
+    ("walls",      "Walls (straight)","Straight portion of outer walls"),
+    ("taper",      "Wall Taper",      "Tapered zone at top of outer walls"),
+    ("internals",  "Internals",       "Cavity features: tubes (LEGO) or lattice (Clara)"),
+    ("base",       "Base",            "Bottom face at Z=0"),
+    ("default",    "Fillets/Other",   "Unclassified faces (fillets, transitions)"),
 ]
 
 
@@ -142,13 +158,17 @@ def classify_face(mesh, poly, params):
     bounds derived from panel params (or defaults). Works for any brick system
     (LEGO tubes, Clara lattice, etc.) because classification is purely geometric.
 
+    Returns the MOST SPECIFIC region (e.g. "taper" not "walls" for tapered wall
+    faces). Parent regions are resolved via ANATOMY_REGION_GROUPS in the
+    highlighting logic.
+
     Args:
         mesh: The mesh data (bpy.types.Mesh).
         poly: The face to classify (bpy.types.MeshPolygon).
         params (dict): Panel params dict with studs_x, studs_y, PITCH, etc.
 
     Returns:
-        str: Region name (key into ANATOMY_COLORS).
+        str: Region name (key into ANATOMY_COLORS). Most-specific classification.
 
     Examples:
         >>> # classify_face(mesh, poly, {"studs_x": 2, "studs_y": 4})
@@ -172,6 +192,17 @@ def classify_face(mesh, poly, params):
     else:
         height = brick_height
 
+    # Taper params (0 = no taper)
+    taper_height = float(params.get("taper_height", 0))
+    taper_inset = float(params.get("taper_inset", 0))
+    has_wall_taper = taper_height > 0 and taper_inset > 0
+    taper_start_z = height - taper_height if has_wall_taper else height
+
+    stud_taper_height = float(params.get("stud_taper_height", 0))
+    stud_taper_inset = float(params.get("stud_taper_inset", 0))
+    has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
+    stud_taper_start_z = height + stud_height - stud_taper_height if has_stud_taper else height + stud_height
+
     outer_x = studs_x * pitch - 2 * clearance
     outer_y = studs_y * pitch - 2 * clearance
     half_ox = outer_x / 2
@@ -188,8 +219,10 @@ def classify_face(mesh, poly, params):
     if cz > height + stud_height - tol:
         return "logo"
 
-    # Studs: cylindrical faces above the deck
+    # Studs: cylindrical faces above the deck (with taper sub-region)
     if cz > height + tol:
+        if has_stud_taper and cz > stud_taper_start_z - tol:
+            return "stud_taper"
         return "studs"
 
     # Deck: horizontal upward-facing faces at Z ~ height
@@ -204,8 +237,10 @@ def classify_face(mesh, poly, params):
     inside_inner = (abs(cx) < half_ix + tol and abs(cy) < half_iy + tol)
     outside_outer = (abs(cx) > half_ox - tol or abs(cy) > half_oy - tol)
 
-    # Walls: faces on the outer perimeter
+    # Walls: faces on the outer perimeter (with taper sub-region)
     if outside_outer and cz > tol and cz < height - tol:
+        if has_wall_taper and cz > taper_start_z - tol:
+            return "taper"
         return "walls"
 
     # Internals: faces inside the cavity (tubes, lattice, ridges, inner walls)
@@ -218,6 +253,8 @@ def classify_face(mesh, poly, params):
 
     # Inner wall faces (between outer and inner perimeter, below deck)
     if cz > tol and cz < height - tol:
+        if has_wall_taper and cz > taper_start_z - tol:
+            return "taper"
         return "walls"
 
     return "default"
