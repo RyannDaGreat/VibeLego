@@ -28,7 +28,7 @@ comments, and conversation for precision.
 | Outer vertical faces | **Walls** | The 4 outer vertical surfaces of the shell |
 | Cylindrical bumps on top | **Studs** | Round pegs on the deck (industry standard term) |
 | Raised text on studs | **Logo** | The "CLARA" embossed text on each stud top |
-| Hollow interior (open bottom) | **Cavity** | The empty space inside, open from below |
+| Hollow interior (open bottom) | **Cavity** | The empty void inside the brick, open from below. Not a face region — it's the absence of material |
 | ±45° diagonal ribs (Clara) | **Lattice** | The crisscross strut pattern filling the cavity |
 | Single diagonal rib | **Strut** | One thin wall at 45°, running wall-to-wall |
 | Diamond opening in lattice | **Cell** | One opening where a stud fits (inscribed circle = STUD_DIAMETER) |
@@ -52,10 +52,11 @@ Each sub-region has its own distinct color so they remain visually separable
 even when shown together.
 
 **Panel controls** (in the "Anatomy" section, below parametric sections):
-- **Show Anatomy Colors** checkbox — toggles coloring on/off, switches viewport
-  shading between MATERIAL (colors visible) and SOLID (matcap)
-- **Region** dropdown — "All Regions" colors everything; selecting a specific
-  region (e.g. "Studs") highlights only that region and grays out the rest
+Uses the generic `enable_key` section pattern (see below). The **Show Anatomy
+Colors** checkbox in the section header toggles coloring on/off and switches
+viewport shading between MATERIAL (colors visible) and SOLID (matcap). When
+enabled, the **Region** dropdown appears — "All Regions" colors everything;
+selecting a specific region highlights only that region and grays out the rest.
 
 **Regions and colors**:
 | Region | Color | Classification rule |
@@ -64,11 +65,13 @@ even when shown together.
 | Studs (straight) | Red | Straight cylinder portion of studs |
 | Stud Taper | Pink | Tapered zone at stud tops (when stud_taper active) |
 | Logo | Gold | Face center Z > stud tops (text extrusion) |
-| Deck | Green | Horizontal upward face at Z ≈ brick height |
+| Deck | Green | Horizontal upward face at Z ≈ brick height (top surface only) |
 | Walls (all) | — | Parent group: walls + taper |
 | Walls (straight) | Blue | Face on outer perimeter, below taper zone |
 | Wall Taper | Light blue | Tapered zone at top of walls (when taper active) |
-| Internals | Purple | Face inside cavity bounds (tubes, lattice, ridges) |
+| Internals (all) | — | Parent group: internal_walls + internal_ceiling |
+| Internal Walls | Purple | Vertical faces in cavity (tubes, lattice struts, ridges) |
+| Internal Ceiling | Lavender | Underside of deck facing down into cavity |
 | Base | Gray | Horizontal downward face at Z ≈ 0 |
 | Fillets/Other | Light gray | Unclassified (fillet transitions, etc.) |
 
@@ -224,26 +227,46 @@ panel_def.py (SECTIONS data)  ←  single source of truth
 LEGO panel (Blender N-sidebar, "build123d" tab):
   ├── Reset to Defaults button
   ├── Shape: brick_type (BRICK/PLATE/SLOPE), studs_x, studs_y, flat_rows
-  ├── Studs & Body: pitch (stud spacing), stud_diameter, stud_height, brick_height, plate_height
+  ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height, plate_height
   ├── Walls: wall_thickness, floor_thickness, clearance
   ├── Internals: tube_outer_diameter, tube_inner_diameter, ridge_width/height
-  ├── Text: stud_text, stud_text_font, stud_text_font_size, stud_text_height
-  ├── Polish: enable_fillet (checkbox), fillet_radius
-  └── Anatomy: show_anatomy (checkbox), region selector dropdown
+  ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
+  ├── [✓] Polish: enable_fillet, fillet_radius
+  └── [✓] Anatomy: show_anatomy, region selector dropdown
 
 Clara panel (same tab, different layout):
-  ├── Reset to Defaults button
-  ├── Shape: studs_x, studs_y (no brick_type enum — always lattice)
-  ├── Studs & Body: pitch (stud spacing), stud_diameter, stud_height, brick_height (no plate_height)
+  ├── Preset buttons (Mini Brick, LEGO Standard) + reset
+  ├── Shape: studs_x, studs_y
+  ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height
   ├── Walls: wall_thickness, floor_thickness, clearance
-  ├── 3D Printing: corner_radius, wall taper (height/inset/curve), stud taper (height/inset/curve)
-  ├── Text: stud_text, stud_text_font, stud_text_font_size, stud_text_height
-  ├── Polish: enable_fillet (checkbox), fillet_radius
-  └── Anatomy: show_anatomy (checkbox), region selector dropdown
-  (no Internals section — Clara has no tubes or ridges)
+  ├── [✓] Corner Radius: enable_corner_radius, corner_radius
+  ├── [✓] Wall Taper: enable_wall_taper, height, inset, curve (LINEAR/CURVED)
+  ├── [✓] Stud Taper: enable_stud_taper, height, inset, curve (LINEAR/CURVED)
+  ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
+  ├── [✓] Polish: enable_fillet, fillet_radius
+  └── [✓] Anatomy: show_anatomy, region selector dropdown
+  [✓] = toggleable section (enable_key pattern, see below)
 ```
 
 **Architecture**: Panel definitions are data-driven. Model-specific params live in `models/bricks/<system>/panel_def.py` (pure data, no bpy). General panel infrastructure in `blender_watcher.py` dynamically builds Blender PropertyGroup + Panel from any `panel_def.py` found in the watched directory.
+
+**Section enable_key pattern**: Any section can have an `enable_key` field pointing
+to a bool param in its `params` list. When present:
+- The section header shows a checkbox + label (instead of just a label)
+- When unchecked, all child params are hidden (section collapses)
+- The enable param itself is drawn in the header, not in the body
+- `parametric.py` reads the enable flag and zeros out dependent values when disabled
+
+Anatomy uses this pattern too (built at registration time in `blender_watcher.py`
+since it needs bpy callbacks), but it's display-only — not sent to the build worker.
+
+**Preset system** (Clara only, extensible to LEGO):
+- `panel_def.py` exports a `PRESETS` list of `{key, label, description, params}` dicts
+- Each preset's `params` dict contains json_key overrides (delta from SECTIONS defaults)
+- Apply preset = reset all params to defaults, then apply overrides
+- Mini Brick preset has empty params (matches defaults), LEGO Standard overrides back to original values
+- Panel shows preset buttons in a row + reset icon
+- `blender_watcher.py` loads PRESETS at registration and creates a PresetOp operator
 
 **Persistent worker** (`build_worker.py`): Keeps build123d imported across slider changes. Spawned as a child process of Blender (stdin/stdout pipes, not sockets). Eliminates the 1.3s import cost per rebuild — steady-state ~0.9s vs ~2.5s without worker.
 

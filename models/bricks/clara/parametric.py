@@ -57,7 +57,8 @@ def _build(params):
     """
     studs_x = int(params.get("studs_x", 2))
     studs_y = int(params.get("studs_y", 4))
-    corner_radius = float(params.get("corner_radius", 0))
+    enable_corner_radius = params.get("enable_corner_radius", True)
+    corner_radius = float(params.get("corner_radius", 0)) if enable_corner_radius else 0
 
     # Zero out taper params when section is disabled
     enable_wall_taper = params.get("enable_wall_taper", True)

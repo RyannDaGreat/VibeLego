@@ -71,10 +71,15 @@ SECTIONS = [
     {
         "label": "Corner Radius",
         "icon": "MOD_BEVEL",
+        "enable_key": "enable_corner_radius",
         "params": [
             {
+                "key": "enable_corner_radius", "json_key": "enable_corner_radius",
+                "type": "bool", "label": "Enable", "default": True,
+            },
+            {
                 "key": "corner_radius", "json_key": "corner_radius", "type": "float",
-                "label": "Radius", "default": 2.0, "min": 0.0, "max": 4.0,
+                "label": "Radius", "default": 2.0, "min": 0.1, "max": 4.0,
                 "step": 10, "precision": 2,
                 "description": "2D corner rounding of brick outline (like CSS border-radius)",
             },
@@ -167,6 +172,7 @@ PRESETS = [
         "description": "Standard LEGO-compatible dimensions (no taper, short studs)",
         "params": {
             "STUD_HEIGHT": 1.8,
+            "enable_corner_radius": False,
             "corner_radius": 0.0,
             "enable_wall_taper": False,
             "taper_height": 0.0,
