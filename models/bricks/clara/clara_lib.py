@@ -24,15 +24,15 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from build123d import (
-    Box, Circle, Cylinder, Rectangle, Pos, Rot, Plane,
+    Box, Circle, Cylinder, Rectangle, RectangleRounded, Pos, Rot, Plane,
     Align, Keep, Mode, FontStyle,
     BuildPart, BuildSketch, add, Locations, GridLocations,
-    Text, extrude, fillet, loft, split,
+    Text, extrude, loft, split,
 )
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
     BRICK_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
-    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM, ENABLE_TEXT,
+    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM, SKIP_CONCAVE, ENABLE_TEXT,
     STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, STUD_TEXT_ROTATION,
     bevel_above_z,
 )
@@ -101,23 +101,23 @@ def _clamp_cr(cr, w, h):
     return max(min(cr, w / 2 - 0.01, h / 2 - 0.01), 0)
 
 
-def _rounded_rect(sketch, w, h, r):
+def _rounded_rect(w, h, r):
     """
     Command, general. Add a (optionally rounded) rectangle to the current
-    BuildSketch. If r > 0, fillets all 4 corners.
+    BuildSketch. Uses RectangleRounded when r > 0, plain Rectangle otherwise.
 
     Args:
-        sketch: BuildSketch context (for vertex access).
         w (float): Width (X).
         h (float): Height (Y).
         r (float): Corner radius. 0 = sharp corners.
 
     Examples:
-        >>> # with BuildSketch() as sk: _rounded_rect(sk, 10, 5, 1.5)
+        >>> # with BuildSketch(): _rounded_rect(10, 5, 1.5)
     """
-    Rectangle(w, h)
     if r > 0:
-        fillet(sketch.vertices(), r)
+        RectangleRounded(w, h, r)
+    else:
+        Rectangle(w, h)
 
 
 def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
@@ -287,9 +287,9 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
             taper_start_z = height - taper_height
             # Bottom + taper start: identical profiles → straight walls below
             with BuildSketch(Plane.XY) as sk:
-                _rounded_rect(sk, outer_x, outer_y, cr)
+                _rounded_rect(outer_x, outer_y, cr)
             with BuildSketch(Plane.XY.offset(taper_start_z)) as sk:
-                _rounded_rect(sk, outer_x, outer_y, cr)
+                _rounded_rect(outer_x, outer_y, cr)
             # Intermediate profiles for curved taper
             if taper_curve == "CURVED":
                 for i in range(1, _CURVED_TAPER_STEPS):
@@ -300,15 +300,15 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
                     h_dim = outer_y - 2 * inset
                     r = _clamp_cr(cr, w, h_dim)
                     with BuildSketch(Plane.XY.offset(z)) as sk:
-                        _rounded_rect(sk, w, h_dim, r)
+                        _rounded_rect(w, h_dim, r)
             # Top profile (full inset)
             with BuildSketch(Plane.XY.offset(height)) as sk:
-                _rounded_rect(sk, top_x, top_y, top_cr)
+                _rounded_rect(top_x, top_y, top_cr)
             loft(ruled=True)
         elif cr > 0:
             # Rounded rect extrude (no taper)
             with BuildSketch() as sk:
-                _rounded_rect(sk, outer_x, outer_y, cr)
+                _rounded_rect(outer_x, outer_y, cr)
             extrude(amount=height)
         else:
             # Sharp box (original, fastest)
@@ -338,7 +338,7 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
                              align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet above cavity only -- lattice strut edges are too thin for OCCT filleter
-    result = bevel_above_z(brick.part, FILLET_RADIUS, z_threshold=cavity_z, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM) if ENABLE_FILLET else brick.part
+    result = bevel_above_z(brick.part, FILLET_RADIUS, z_threshold=cavity_z, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM, skip_concave=SKIP_CONCAVE) if ENABLE_FILLET else brick.part
 
     if not ENABLE_TEXT:
         return result
@@ -430,9 +430,9 @@ def clara_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1,
             if has_taper:
                 taper_start_z = height - taper_height
                 with BuildSketch(Plane.XY) as sk:
-                    _rounded_rect(sk, outer_x, outer_y, cr)
+                    _rounded_rect(outer_x, outer_y, cr)
                 with BuildSketch(Plane.XY.offset(taper_start_z)) as sk:
-                    _rounded_rect(sk, outer_x, outer_y, cr)
+                    _rounded_rect(outer_x, outer_y, cr)
                 if taper_curve == "CURVED":
                     top_x = outer_x - 2 * taper_inset
                     top_y = outer_y - 2 * taper_inset
@@ -444,16 +444,16 @@ def clara_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1,
                         h_dim = outer_y - 2 * inset
                         r = _clamp_cr(cr, w, h_dim)
                         with BuildSketch(Plane.XY.offset(z)) as sk:
-                            _rounded_rect(sk, w, h_dim, r)
+                            _rounded_rect(w, h_dim, r)
                 top_x = outer_x - 2 * taper_inset
                 top_y = outer_y - 2 * taper_inset
                 top_cr = _clamp_cr(cr, top_x, top_y)
                 with BuildSketch(Plane.XY.offset(height)) as sk:
-                    _rounded_rect(sk, top_x, top_y, top_cr)
+                    _rounded_rect(top_x, top_y, top_cr)
                 loft(ruled=True)
             else:
                 with BuildSketch() as sk:
-                    _rounded_rect(sk, outer_x, outer_y, cr)
+                    _rounded_rect(outer_x, outer_y, cr)
                 extrude(amount=height)
         sloped_outer = split(outer_bp.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
     else:
@@ -501,8 +501,9 @@ def clara_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1,
     if ENABLE_FILLET:
         try:
             result = bevel_above_z(result, FILLET_RADIUS, z_threshold=cavity_z,
-                                   style=EDGE_STYLE, include_bottom=FILLET_BOTTOM)
-        except Exception:
+                                   style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
+                                   skip_concave=SKIP_CONCAVE)
+        except ValueError:
             pass  # Fillet failure on slopes is a known OCCT limitation
 
     if not ENABLE_TEXT or not flat_xy:

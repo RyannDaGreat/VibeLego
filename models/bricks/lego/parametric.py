@@ -24,14 +24,6 @@ import common
 import panel_def
 from parametric_base import apply_overrides, run as _run, standalone_main
 
-# LEGO-specific overrides (tube/ridge params not in common.py)
-LEGO_EXTRA_OVERRIDES = [
-    {"json_key": "TUBE_OUTER_DIAMETER", "type": "float"},
-    {"json_key": "TUBE_INNER_DIAMETER", "type": "float"},
-    {"json_key": "RIDGE_WIDTH", "type": "float"},
-    {"json_key": "RIDGE_HEIGHT", "type": "float"},
-]
-
 # Derived constants that must be recomputed after overrides
 DERIVED_CONSTANTS = {
     "STUD_RADIUS": (common, lambda: common.STUD_DIAMETER / 2),
@@ -45,7 +37,6 @@ def _apply_overrides(params):
     Command, specific. Patch common + lego_lib module constants from params.
     """
     apply_overrides(params, common, lego_lib, panel_def.SECTIONS,
-                    extra_overrides=LEGO_EXTRA_OVERRIDES,
                     derived_constants=DERIVED_CONSTANTS)
 
 

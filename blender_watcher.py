@@ -208,7 +208,7 @@ def _clear_anatomy_colors(obj):
 
 def _setup_material(obj, mat_name, configure_fn):
     """
-    Command, general. Get-or-create a material, clear its nodes, call
+    Command, specific. Get-or-create a material, clear its nodes, call
     configure_fn to populate the node tree, and assign it to obj's slot 0.
 
     Args:
@@ -459,7 +459,7 @@ def run_build(source_path, stl_path):
 
 def _spawn_worker():
     """
-    Command, general. Spawn the persistent build worker process. The
+    Command, specific. Spawn the persistent build worker process. The
     worker imports build123d once and then accepts JSON build requests
     on stdin. Returns the Popen object, or None if spawn failed.
 
@@ -499,19 +499,24 @@ def _spawn_worker():
 
 def _kill_worker():
     """
-    Command, general. Kill the persistent worker if it's running.
+    Command, specific. Kill the persistent worker if it's running.
     """
     global _worker
     if _worker is not None:
         _worker.stdin.close()
-        _worker.wait(timeout=5)
+        try:
+            _worker.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            print("[worker] Worker did not exit, sending SIGKILL")
+            _worker.kill()
+            _worker.wait()
         print("[worker] Killed (will respawn on next slider change)")
         _worker = None
 
 
 def _get_worker():
     """
-    Query, general. Get the running worker, spawning it if needed.
+    Query, specific. Get the running worker, spawning it if needed.
 
     Returns:
         subprocess.Popen or None
@@ -529,7 +534,7 @@ def _get_worker():
 
 def panel_params_to_dict():
     """
-    Query, general. Read all registered panel properties into a dict using
+    Query, specific. Read all registered panel properties into a dict using
     the key mapping built at registration time.
 
     Returns:
@@ -609,7 +614,7 @@ def on_param_change(self, context):
 
 def _make_bpy_property(param):
     """
-    Pure function, general. Convert a param dict from panel_def into a
+    Query, specific. Convert a param dict from panel_def into a
     bpy.props descriptor.
 
     Args:
@@ -826,7 +831,6 @@ def _build_panel_classes(sections):
             else:
                 box.label(text=section["label"], icon=section.get("icon", "NONE"))
 
-            row_keys = {k for row in section.get("rows", []) for k in row}
             visible_when = section.get("visible_when", {})
             drawn_in_row = set()
 
@@ -980,7 +984,7 @@ def reload_panel():
 
 def get_dir_mtime():
     """
-    Pure function, specific. Get the max mtime of all .py files in the
+    Query, specific. Get the max mtime of all .py files in the
     watched directory. Used to detect changes in the source file or any
     of its local dependencies (e.g., lego_lib.py).
 
@@ -1079,7 +1083,6 @@ def main():
             if os.path.exists(STL_PATH):
                 _last_stl_mtime = os.path.getmtime(STL_PATH)
                 update_mesh_from_stl(STL_PATH)
-                _reapply_anatomy_if_active()
 
 
 main()

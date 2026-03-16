@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     WALL_THICKNESS, FLOOR_THICKNESS, CLEARANCE,
     ENABLE_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, STUD_TEXT_ROTATION,
-    FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM,
+    FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM, SKIP_CONCAVE,
 )
 
 
@@ -130,8 +130,13 @@ FILLET_SECTION = {
         },
         {
             "key": "fillet_bottom", "json_key": "FILLET_BOTTOM", "type": "bool",
-            "label": "Include Bottom", "default": False,
+            "label": "Include Bottom", "default": FILLET_BOTTOM,
             "description": "Also fillet edges at the bottom (Z=0). Off by default for 3D print bed adhesion.",
+        },
+        {
+            "key": "skip_concave", "json_key": "SKIP_CONCAVE", "type": "bool",
+            "label": "Skip Concave", "default": SKIP_CONCAVE,
+            "description": "Skip interior (concave) edges like stud-deck junctions. Only rounds exterior corners.",
         },
     ],
 }

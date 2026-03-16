@@ -8,6 +8,8 @@ Coordinate convention: brick sits on XY plane, studs point up (+Z).
 Origin at the center-bottom of the brick body (not including studs).
 """
 
+from build123d import Axis
+
 # ── Dimension Constants (mm) ─────────────────────────────────────────────────
 # Base unit: 1 LDU = 0.4mm. Stud pitch = 20 LDU = 8.0mm.
 
@@ -24,6 +26,7 @@ FILLET_RADIUS = 0.15    # edge rounding
 ENABLE_FILLET = True    # toggle fillets on/off
 EDGE_STYLE = "FILLET"   # "FILLET" (rounded) or "CHAMFER" (straight bevel)
 FILLET_BOTTOM = False   # include bottom (Z=0) edges in fillet/chamfer
+SKIP_CONCAVE = False    # skip interior (concave) edges (stud-deck junctions)
 ENABLE_TEXT = True      # toggle stud text on/off
 STUD_TEXT = "CLARA"
 STUD_TEXT_FONT = "Arial"  # font name (system font) or path to .ttf file
@@ -37,12 +40,14 @@ STUD_RADIUS = STUD_DIAMETER / 2
 # ── General helper ───────────────────────────────────────────────────────────
 
 def bevel_above_z(part, radius, z_threshold=0.0, tolerance=0.01,
-                  style="FILLET", include_bottom=False):
+                  style="FILLET", include_bottom=False, skip_concave=False):
     """
     Pure function, general. Fillet or chamfer edges, optionally including bottom.
 
     By default keeps bottom edges sharp (build plate adhesion / clean base).
     Set include_bottom=True to bevel all edges including Z=0.
+    Set skip_concave=True to skip interior (concave) edges — useful to leave
+    stud-deck junctions unfilleted while rounding all exterior corners.
 
     Args:
         part (Part): Solid to bevel.
@@ -51,6 +56,7 @@ def bevel_above_z(part, radius, z_threshold=0.0, tolerance=0.01,
         tolerance (float): Z comparison tolerance.
         style (str): "FILLET" (rounded) or "CHAMFER" (straight 45° bevel).
         include_bottom (bool): If True, bevel all edges including bottom.
+        skip_concave (bool): If True, skip interior (concave) edges.
 
     Returns:
         Part: Beveled solid.
@@ -59,14 +65,28 @@ def bevel_above_z(part, radius, z_threshold=0.0, tolerance=0.01,
         >>> # bevel_above_z(box, 0.15) -> fillets everything except Z=0
         >>> # bevel_above_z(box, 0.15, style="CHAMFER") -> chamfers instead
         >>> # bevel_above_z(box, 0.15, include_bottom=True) -> fillets ALL edges
+        >>> # bevel_above_z(box, 0.15, skip_concave=True) -> exterior corners only
     """
+    above = part.edges().filter_by_position(
+        Axis.Z, z_threshold + tolerance, float('inf'), inclusive=(False, True)
+    )
     if include_bottom:
-        # Include Z≈0 edges AND above-threshold edges (skip mid-range internals)
-        edges = [e for e in part.edges()
-                 if e.center().Z > z_threshold + tolerance
-                 or e.center().Z < tolerance]
+        bottom = part.edges().filter_by_position(
+            Axis.Z, float('-inf'), tolerance, inclusive=(True, False)
+        )
+        edges = above + bottom
     else:
-        edges = [e for e in part.edges() if e.center().Z > z_threshold + tolerance]
+        edges = above
+
+    if skip_concave:
+        def _is_convex(e):
+            """Boundary edges (<2 faces) are treated as convex (not interior)."""
+            try:
+                return not e.is_interior
+            except IndexError:
+                return True
+        edges = edges.filter_by(_is_convex)
+
     if style == "CHAMFER":
         return part.chamfer(radius, None, edges)
     return part.fillet(radius, edges)

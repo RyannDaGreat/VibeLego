@@ -53,7 +53,8 @@ def apply_overrides(params, common_mod, lib_mod, sections,
             if cast is None:
                 continue
             val = cast(params[jk])
-            setattr(common_mod, jk, val)
+            if hasattr(common_mod, jk):
+                setattr(common_mod, jk, val)
             if hasattr(lib_mod, jk):
                 setattr(lib_mod, jk, val)
 
@@ -66,9 +67,10 @@ def apply_overrides(params, common_mod, lib_mod, sections,
 
     if derived_constants:
         for key, (mod, compute) in derived_constants.items():
-            setattr(mod, key, compute())
+            val = compute()
+            setattr(mod, key, val)
             if mod is common_mod and hasattr(lib_mod, key):
-                setattr(lib_mod, key, compute())
+                setattr(lib_mod, key, val)
 
 
 def run(params, stl_path, build_fn, override_fn):
