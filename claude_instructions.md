@@ -138,6 +138,37 @@ build123d_tests/
 - `raised_text_at(text, font_size, height, positions)` — extruded text at positions (OCCT font→B-Rep, no SVG intermediate)
 - `fillet_above_z(part, radius, z_threshold)` — fillet edges above a Z plane
 
+## build123d API Quick Reference (for Claude)
+
+### Boolean Operations
+- **`a + b`** or `a.fuse(b)` — union (Mode.ADD in builder)
+- **`a - b`** or `a.cut(b)` — subtraction (Mode.SUBTRACT)
+- **`a & b`** or `a.intersect(b)` — common volume / clip (Mode.INTERSECT)
+- **`Mode.REPLACE`** — discard current solid, use new
+- **`Mode.PRIVATE`** — build geometry without adding to context
+
+### Clipping Geometry to a Bounding Volume
+Use `&` (boolean intersection) to clip oversized features to a boundary:
+```python
+clipped = oversized_part & bounding_volume   # BRepAlgoAPI_Common
+```
+Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire existing solid* to the overlap, not just the new shape. Instead, compute the intersection separately and `add()` the result.
+
+### split() Caveat
+`split()` does NOT call `clean()` (unlike `fuse`/`cut`/`intersect`). Splitting hollow geometry (e.g., tubes) produces non-manifold topology that corrupts subsequent boolean unions. Use `&` for clipping instead, or call `.clean()` on split results.
+
+### Built-in Alternatives to Custom Helpers
+- **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — replaces manual grid position calculation
+- **`offset(face, -thickness, kind=Kind.INTERSECTION)`** — hollows out a solid (square corners)
+- **`extrude(sketch, amount, mode=Mode.INTERSECT)`** — clip to an extruded profile
+- **`Compound([parts])`** — groups without boolean (vs `+` which fuses)
+
+### Key Documentation
+- Docs: https://build123d.readthedocs.io/en/latest/
+- Tips: https://build123d.readthedocs.io/en/latest/tips.html
+- Official LEGO tutorial: https://github.com/gumyr/build123d/blob/dev/examples/lego.py
+- Boolean pitfalls: avoid coplanar faces (extend cutting tools by epsilon), avoid self-intersecting geometry
+
 ## Convention for User Scripts
 
 User scripts receive the STL output path via the `BUILD123D_PREVIEW_STL` environment variable.

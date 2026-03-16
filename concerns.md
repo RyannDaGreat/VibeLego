@@ -109,3 +109,37 @@ Launched 7 agents to investigate all angles before writing any code:
 ### Concern: build123d not yet tested on this machine
 - setup.sh has not been run yet. build123d may fail to install if OCP wheels aren't available for the detected Python version. This is a known risk — the setup script handles it by preferring Python 3.13.
 - End-to-end test (run.sh → Blender → mesh update) not yet performed. Need to verify the full pipeline works.
+
+## 2026-03-15: build123d API Frenzy (12 agents)
+
+### Why the frenzy was needed
+- The slope tube clipping code used 18 lines of manual plane-equation math to compute tube heights. This was ugly and fragile (first version forgot the tube radius, second forgot the far edge). The user correctly identified this as a code smell — build123d should have tools for this.
+
+### Key discoveries
+
+#### Boolean intersection (`&` operator) for clipping
+- `tube & cavity_volume` clips the tube to fit inside the cavity using `BRepAlgoAPI_Common`. 4 lines replaces 18 lines of manual math.
+- The `&` operator calls `.clean()` automatically, which is why it works on hollow cylinders while `split()` didn't.
+
+#### split() doesn't call clean()
+- Root cause of our earlier `split()` failure on hollow cylinders: `split()` uses `BRepAlgoAPI_Splitter` but NEVER calls `ShapeUpgrade_UnifySameDomain` (the `.clean()` step). This leaves extra coplanar faces and non-manifold topology at the cut plane. When passed to `fuse()`, the corrupted topology causes the entire boolean to produce garbage (76 faces instead of 144, entire shell lost).
+- Fix: either call `.clean()` on split results, or use `&` instead.
+
+#### Mode.INTERSECT trims the WHOLE part, not just new geometry
+- `Mode.INTERSECT` in a `BuildPart` context replaces the entire accumulated solid with `existing ∩ new_shape`. It does NOT mean "add only the overlapping part of the new shape." For clipping a tube to a cavity, you must compute `tube & cavity` outside the builder and `add()` the result.
+
+#### Official LEGO tutorial uses 2D sketch approach
+- The official build123d LEGO example (lego.py) sketches the entire cross-section in 2D (walls + ridges + tube circles), then extrudes once. Tubes can't exceed boundaries because they're defined in the same sketch profile. This eliminates the need for boolean clipping entirely.
+- Also uses `offset()` for hollowing and `GridLocations` for positioning — built-in features we're not using.
+
+#### Unused build123d features that could simplify our code
+- `GridLocations(x_spacing, y_spacing, x_count, y_count)` — replaces `centered_grid()`
+- `offset(face, -thickness)` — replaces `hollow_box()`
+- `Compound([parts])` — groups without boolean (unlike `+` which fuses)
+- `extrude(until=Until.NEXT)` — extrude to a target face (auto height)
+- `Mode.PRIVATE` — build intermediate geometry without affecting the part
+
+#### Boolean pitfalls (from OCCT kernel)
+- Coplanar faces cause failures — extend cutting tools by epsilon beyond boundaries
+- Near-tangent surfaces fail — avoid shapes that just graze each other
+- `Part & Part` returns `Compound` (not `Part`) — fine for `add()` but be aware
