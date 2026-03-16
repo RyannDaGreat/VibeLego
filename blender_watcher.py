@@ -154,11 +154,18 @@ def update_mesh_from_stl(stl_path):
         temp_obj.name = OBJECT_NAME
         temp_mesh.name = OBJECT_NAME
         print(f"[watcher] Created preview object: {len(verts)} vertices, {len(faces)} faces")
-        # Frame the object in viewport
+        # Frame the object in viewport (needs context override for startup)
         bpy.ops.object.select_all(action="DESELECT")
         temp_obj.select_set(True)
         bpy.context.view_layer.objects.active = temp_obj
-        bpy.ops.view3d.view_selected()
+        for area in bpy.context.screen.areas:
+            if area.type == "VIEW_3D":
+                for region in area.regions:
+                    if region.type == "WINDOW":
+                        with bpy.context.temp_override(area=area, region=region):
+                            bpy.ops.view3d.view_selected()
+                        break
+                break
         return
 
     # Subsequent imports: update mesh in-place (preserves materials)
