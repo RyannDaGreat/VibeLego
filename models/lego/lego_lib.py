@@ -265,7 +265,9 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
 
     result = brick.part
 
-    # Apply fillets to all edges for realistic appearance
-    result = result.fillet(FILLET_RADIUS, result.edges())
+    # Apply fillets to all edges except bottom (Z=0) for 3D printability
+    bottom_edges = [e for e in result.edges() if abs(e.center().Z) < 0.01]
+    fillet_edges = [e for e in result.edges() if e not in bottom_edges]
+    result = result.fillet(FILLET_RADIUS, fillet_edges)
 
     return result
