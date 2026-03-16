@@ -239,6 +239,7 @@ Clara panel (same tab, different layout):
   ├── Shape: studs_x, studs_y
   ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height
   ├── Walls: wall_thickness, floor_thickness, clearance
+  ├── [✓] Slope: enable_slope, slope_flat_rows
   ├── [✓] Corner Radius: enable_corner_radius, corner_radius
   ├── [✓] Wall Taper: enable_wall_taper, height, inset, curve (LINEAR/CURVED)
   ├── [✓] Stud Taper: enable_stud_taper, height, inset, curve (LINEAR/CURVED)
@@ -326,11 +327,35 @@ Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a diff
 - When no taper/radius is active, `clara_brick()` uses the fast `Box()` path (no loft overhead).
 
 **Implementation** (`clara_brick()` in `models/bricks/clara/clara_lib.py`):
-1. Shell: 3-branch construction — has_taper → 3-profile loft, corner_radius > 0 → rounded rect extrude, else → Box (fastest)
+1. Shell: 3-branch construction — has_taper → multi-profile loft, corner_radius > 0 → rounded rect extrude, else → Box (fastest)
 2. Cavity: sharp rectangle subtracted from shell (intentionally NOT rounded — thicker material at corners)
-3. Lattice: 2D sketch with `Locations([Pos * Rot])` context managers (NOT algebra `Pos * Rot * Shape` which silently fails in sketches), clipped with `Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)`, extruded to `cavity_z`
+3. Lattice: built via `_build_lattice()` helper — 2D sketch with `Locations([Pos * Rot])`, clipped with `Mode.INTERSECT`, extruded to `cavity_z`. Shared by `clara_brick` and `clara_slope`.
 4. Fillet threshold = `cavity_z` (not 0) — lattice strut edges are too thin for OCCT filleter
-5. Studs, text — same as `lego_brick`
+5. Studs (with optional stud taper via `_build_stud()`), text — same pattern as `lego_brick`
+
+### Clara Slope Bricks
+
+`clara_slope()` in `clara_lib.py`. Same slope geometry as `lego_slope()` (proven
+slope plane math) but with diagonal lattice instead of tubes.
+
+**Build order** (critical — same pattern as LEGO slope):
+1. Outer shell (with optional corner_radius + taper via loft) → `split` by slope plane
+2. Cavity box → `split` by OFFSET slope plane (FLOOR_THICKNESS gap)
+3. Shell = sloped_outer - sloped_cavity
+4. Lattice built separately via `_build_lattice()` → clipped with `& sloped_cavity`
+5. Studs on flat rows only (with optional stud taper)
+6. Fillet (may fail on slopes — known OCCT limitation, caught gracefully)
+7. Text on flat stud positions
+
+**Panel**: "Slope" section with `enable_key: "enable_slope"` (default False).
+When enabled, `slope_flat_rows` (int, 1-8) controls how many stud rows remain
+flat. All other features (corner radius, taper, stud taper) apply to slopes.
+
+**Presets**: "Mini Slope" = Mini Brick defaults + slope enabled.
+
+**Key lesson**: The lattice MUST be built in a separate `BuildPart` for slopes
+(unlike `clara_brick` where it's added directly), so it can be boolean-intersected
+with `sloped_cavity`. Same pattern as LEGO slope tubes.
 
 **Tests**: `models/bricks/clara/tests/test_clara_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
 
@@ -371,9 +396,10 @@ LEGO system (`models/bricks/lego/lego_lib.py`):
 - Slopes: solid outer `Box` -> `split` slope -> subtract trimmed cavity -> tubes (sketch -> extrude -> `& sloped_cavity`) -> studs -> fillet -> text
 
 Clara system (`models/bricks/clara/clara_lib.py`):
-- `clara_brick()` — import shared constants from common.py
+- `clara_brick()`, `clara_slope()` — import shared constants from common.py
 - No LEGO-specific constants (no tubes/ridges)
-- Lattice: 2D sketch with `Locations([Pos * Rot])` for +/-45 deg struts, clipped with `Mode.INTERSECT` -> extrude to cavity_z
+- Lattice: `_build_lattice()` helper — 2D sketch with `Locations([Pos * Rot])` for +/-45 deg struts, clipped with `Mode.INTERSECT` → extrude to cavity_z
+- Slopes: shell (with optional taper/radius) → split → lattice `& sloped_cavity` → studs on flat rows
 
 ## build123d API Quick Reference (for Claude)
 
