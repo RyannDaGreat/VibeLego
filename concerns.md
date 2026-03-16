@@ -231,3 +231,40 @@ Launched 7 agents to investigate all angles before writing any code:
   between slope face and cavity interior. Use `FLOOR_THICKNESS * normal/|normal|`.
 - **Always verify with VLM after geometry changes** — single-angle views are
   misleading. The 14-angle diagnostic render catches what iso views miss.
+- **Never use `Locations([Pos(z)])` + `BuildSketch(Plane.XY)` for Z positioning** —
+  `Locations` does NOT move the sketch plane. The sketch stays at Z=0 regardless
+  of the `Pos` Z offset. Use `BuildSketch(Plane.XY.offset(z))` instead. This bug
+  caused all "CLARA" text to be extruded at Z=0 (buried inside the brick body)
+  instead of on stud tops. Manifested as invisible text and distorted bottom faces.
+
+## 2026-03-15: Text Placement Bug Fix
+
+### Root Cause
+`Locations([Pos(0, 0, z)])` wrapping `BuildSketch(Plane.XY)` does NOT move the
+sketch plane to Z=z. The `BuildSketch(Plane.XY)` always creates at Z=0. This is
+a build123d quirk — `Locations` moves 3D shapes and sketch *contents*, but does
+not change the *plane* of a `BuildSketch`.
+
+### Impact
+All "CLARA" text was being extruded at Z=0 to Z=0.1, entirely inside the brick
+body. The text was invisible in renders and distorted the bottom face geometry
+(text at Z=0 created extra triangles at the bottom).
+
+### Fix
+Replaced `Locations([Pos(z)])` + `BuildSketch(Plane.XY)` with
+`BuildSketch(Plane.XY.offset(z))` in both `lego_brick()` and `lego_slope()`.
+For slope text, `Locations` is still used for X/Y positioning but only with
+`Pos(x, y)` (no Z component) inside a `BuildSketch(Plane.XY.offset(z))`.
+
+### Verification
+All brick types now show correct max Z = height + stud_height + text_height:
+| Type | Faces (before) | Faces (after) | Max Z |
+|------|----------------|---------------|-------|
+| 1x1 brick | 48 | 105 | 11.5 |
+| 2x4 brick | 107 | 563 | 11.5 |
+| 1x2 brick | 53 | 167 | 11.5 |
+| 2x2 brick | 71 | 299 | 11.5 |
+| 1x1 plate | 48 | 105 | 5.1 |
+| 2x2 slope | 131 | 186 | 11.5 |
+
+VLM renders confirm text visible on all studs across all brick types.

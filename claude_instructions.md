@@ -155,8 +155,11 @@ Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire exist
 ### split() Caveat
 `split()` does NOT call `clean()` (unlike `fuse`/`cut`/`intersect`). Splitting hollow geometry (e.g., tubes) produces non-manifold topology that corrupts subsequent boolean unions. Use `&` for clipping instead, or call `.clean()` on split results.
 
+### Locations + BuildSketch Caveat
+`Locations([Pos(0, 0, z)])` does **NOT** move a `BuildSketch(Plane.XY)` to Z=z. The sketch plane stays at Z=0 regardless. Use `BuildSketch(Plane.XY.offset(z))` to place a sketch at a specific Z. `Locations` only moves 3D shapes and sketch *contents* (shapes within a sketch), not the sketch plane itself.
+
 ### Built-in Features Used in lego_lib.py
-- **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — centered grid positioning (replaces manual centered_grid function). No Z offset — wrap with `Locations([Pos(0,0,z)])` for Z.
+- **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — centered grid positioning (replaces manual centered_grid function). No Z offset — use `Plane.XY.offset(z)` on the BuildSketch instead.
 - **`offset(shape, amount, kind=Kind.INTERSECTION)`** — in 2D sketch: shrinks a rectangle to create wall profile. `Kind.INTERSECTION` = sharp corners, `Kind.ARC` = rounded.
 - **`Pos(x,y,z) * Shape`** — position a shape at a location inside BuildPart. Cleaner than `Locations` for single positions.
 - **`Compound([parts])`** — groups without boolean (vs `+` which fuses)

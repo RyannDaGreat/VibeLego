@@ -132,13 +132,14 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
 
     with BuildPart() as final:
         add(result)
-        with Locations([Pos(0, 0, height + STUD_HEIGHT)]):
+        # Plane.XY.offset moves the sketch plane to stud tops.
+        # Locations + BuildSketch(Plane.XY) does NOT move the plane (build123d quirk).
+        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
             with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                with BuildSketch(Plane.XY):
-                    Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                         font_style=FontStyle.BOLD,
-                         align=(Align.CENTER, Align.CENTER))
-                extrude(amount=STUD_TEXT_HEIGHT)
+                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
+                     font_style=FontStyle.BOLD,
+                     align=(Align.CENTER, Align.CENTER))
+        extrude(amount=STUD_TEXT_HEIGHT)
 
     return final.part
 
@@ -252,12 +253,13 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
     if flat_xy:
         with BuildPart() as final:
             add(result)
-            with Locations([Pos(x, y, height + STUD_HEIGHT) for x, y in flat_xy]):
-                with BuildSketch(Plane.XY):
+            # Plane.XY.offset for Z, Locations for X/Y only.
+            with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
+                with Locations([Pos(x, y) for x, y in flat_xy]):
                     Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
                          font_style=FontStyle.BOLD,
                          align=(Align.CENTER, Align.CENTER))
-                extrude(amount=STUD_TEXT_HEIGHT)
+            extrude(amount=STUD_TEXT_HEIGHT)
         result = final.part
 
     return result
