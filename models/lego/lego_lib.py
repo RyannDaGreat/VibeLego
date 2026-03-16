@@ -17,29 +17,34 @@ from build123d import (
 import math
 
 # ── Lego Dimension Constants (mm) ─────────────────────────────────────────────
-# Sources: LDraw spec (1 LDU = 0.4mm), OpenSCAD lego.scad, Bartneck measurements
+# Sources: LDraw spec (1 LDU = 0.4mm), OpenSCAD lego.scad, Bartneck measurements,
+#          OrionRobots specs, cfinke/LEGO.scad, LUGNET FAQ
+#
+# Base unit: 1 LDU = 0.4mm. Stud pitch = 20 LDU = 8.0mm.
+# Brick height = 24 LDU = 9.6mm. Plate = 8 LDU = 3.2mm.
 
-PITCH = 8.0             # stud center-to-center distance
-STUD_DIAMETER = 4.8     # outer diameter of a stud
+PITCH = 8.0             # stud center-to-center distance (20 LDU)
+STUD_DIAMETER = 4.8     # outer diameter of a stud (12 LDU)
 STUD_HEIGHT = 1.8       # height of stud above brick top
-BRICK_HEIGHT = 9.6      # height of standard brick body (without stud)
-PLATE_HEIGHT = 3.2      # height of a plate (1/3 of brick)
-WALL_THICKNESS = 1.2    # outer wall thickness
-FLOOR_THICKNESS = 0.8   # bottom floor/ceiling thickness
+BRICK_HEIGHT = 9.6      # height of standard brick body (24 LDU, without stud)
+PLATE_HEIGHT = 3.2      # height of a plate (8 LDU, 1/3 of brick)
+WALL_THICKNESS = 1.5    # outer wall thickness (OrionRobots: 1.5mm, zoeblade: 1.6mm)
+FLOOR_THICKNESS = 1.0   # bottom floor/ceiling thickness
+CLEARANCE = 0.1         # per-side clearance for brick-to-brick fit
 
 # Anti-stud tubes (for 2+ wide bricks) — grip studs from below
-TUBE_OUTER_DIAMETER = 6.51  # outer diameter of bottom tubes
-TUBE_INNER_DIAMETER = 4.8   # inner diameter (matches stud diameter for clutch)
+# Stud snaps into annular gap between tube outer wall and brick inner wall
+TUBE_OUTER_DIAMETER = 6.31  # outer diameter of bottom tubes (OrionRobots)
+TUBE_INNER_DIAMETER = 4.8   # inner diameter (~stud diameter)
 
-# 1-wide bricks use a single ridge rail instead of tubes
-RIDGE_WIDTH = 1.0       # width of the bottom ridge rail
+# 1-wide bricks use internal spline ribs instead of tubes
+RIDGE_WIDTH = 0.8       # width of the bottom ridge/spline rib
 RIDGE_HEIGHT = 0.8      # how far the ridge extends down from the ceiling
 
 # Derived
 STUD_RADIUS = STUD_DIAMETER / 2
 TUBE_OUTER_RADIUS = TUBE_OUTER_DIAMETER / 2
 TUBE_INNER_RADIUS = TUBE_INNER_DIAMETER / 2
-BODY_TOLERANCE = 0.1    # slight inset for clutch fit (per side)
 
 
 # ── General geometry functions ─────────────────────────────────────────────────
@@ -65,8 +70,8 @@ def lego_brick_body(studs_x, studs_y, height=BRICK_HEIGHT):
         >>> # lego_brick_body(2, 4) -> 16mm x 32mm x 9.6mm hollow box
         >>> # lego_brick_body(1, 1, PLATE_HEIGHT) -> 8mm x 8mm x 3.2mm plate
     """
-    outer_x = studs_x * PITCH
-    outer_y = studs_y * PITCH
+    outer_x = studs_x * PITCH - 2 * CLEARANCE
+    outer_y = studs_y * PITCH - 2 * CLEARANCE
     inner_x = outer_x - 2 * WALL_THICKNESS
     inner_y = outer_y - 2 * WALL_THICKNESS
     inner_z = height - FLOOR_THICKNESS
