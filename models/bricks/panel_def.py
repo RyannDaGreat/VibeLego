@@ -99,23 +99,23 @@ SECTIONS = [
             },
             {
                 "key": "slope_plus_y", "json_key": "slope_plus_y", "type": "int",
-                "label": "+Y Flat Rows", "default": 1, "min": 0, "max": 8,
-                "description": "Flat rows before slope descends toward +Y (0 = no slope)",
+                "label": "+Y Sloped Rows", "default": 0, "min": 0, "max": 8,
+                "description": "Number of rows sloped toward +Y (0 = no slope)",
             },
             {
                 "key": "slope_minus_y", "json_key": "slope_minus_y", "type": "int",
-                "label": "-Y Flat Rows", "default": 0, "min": 0, "max": 8,
-                "description": "Flat rows before slope descends toward -Y (0 = no slope)",
+                "label": "-Y Sloped Rows", "default": 0, "min": 0, "max": 8,
+                "description": "Number of rows sloped toward -Y (0 = no slope)",
             },
             {
                 "key": "slope_plus_x", "json_key": "slope_plus_x", "type": "int",
-                "label": "+X Flat Rows", "default": 0, "min": 0, "max": 8,
-                "description": "Flat rows before slope descends toward +X (0 = no slope)",
+                "label": "+X Sloped Rows", "default": 0, "min": 0, "max": 8,
+                "description": "Number of rows sloped toward +X (0 = no slope)",
             },
             {
                 "key": "slope_minus_x", "json_key": "slope_minus_x", "type": "int",
-                "label": "-X Flat Rows", "default": 0, "min": 0, "max": 8,
-                "description": "Flat rows before slope descends toward -X (0 = no slope)",
+                "label": "-X Sloped Rows", "default": 0, "min": 0, "max": 8,
+                "description": "Number of rows sloped toward -X (0 = no slope)",
             },
             {
                 "key": "slope_min_z", "json_key": "slope_min_z", "type": "float",
@@ -307,7 +307,7 @@ PRESETS = [
         "description": "Clara Mini Brick with slope enabled",
         "params": {
             "enable_slope": True,
-            "slope_plus_y": 1,
+            "slope_plus_y": 3,
         },
     },
     {
@@ -342,7 +342,7 @@ PRESETS = [
             "enable_wall_taper": False,
             "enable_stud_taper": False,
             "enable_slope": True,
-            "slope_plus_y": 1,
+            "slope_plus_y": 3,
         },
     },
     {

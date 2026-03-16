@@ -12,7 +12,7 @@ configs = [
     # Backwards compat: Clara-equivalent configs
     ("Clara 2x4", {"studs_x": 2, "studs_y": 4}),
     ("Clara 2x4 chamfer", {"studs_x": 2, "studs_y": 4, "EDGE_STYLE": "CHAMFER"}),
-    ("Clara slope", {"studs_x": 2, "studs_y": 4, "enable_slope": True, "slope_plus_y": 1}),
+    ("Clara slope", {"studs_x": 2, "studs_y": 4, "enable_slope": True, "slope_plus_y": 3}),
     ("Clara skip_concave", {"studs_x": 2, "studs_y": 4, "SKIP_CONCAVE": True}),
     ("Clara corner_radius", {"studs_x": 2, "studs_y": 4, "enable_corner_radius": True, "corner_radius": 2.0}),
     ("Clara taper", {"studs_x": 2, "studs_y": 4, "taper_height": 2.0, "taper_inset": 0.3}),
@@ -25,7 +25,7 @@ configs = [
                           "BRICK_HEIGHT": 3.2,
                           "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
     ("LEGO slope", {"studs_x": 2, "studs_y": 4, "clutch_type": "TUBE",
-                     "enable_slope": True, "slope_plus_y": 1,
+                     "enable_slope": True, "slope_plus_y": 3,
                      "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
     ("LEGO fillet_bottom", {"studs_x": 2, "studs_y": 4, "clutch_type": "TUBE",
                              "FILLET_BOTTOM": True,
@@ -49,20 +49,20 @@ configs = [
                        "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
 
     # New: 4-dir slopes
-    ("Slope -Y", {"studs_x": 2, "studs_y": 4, "enable_slope": True, "slope_minus_y": 1,
+    ("Slope -Y", {"studs_x": 2, "studs_y": 4, "enable_slope": True, "slope_minus_y": 3,
                    "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
     ("Corner roof", {"studs_x": 4, "studs_y": 4, "enable_slope": True,
-                      "slope_minus_x": 1, "slope_minus_y": 1,
+                      "slope_minus_x": 3, "slope_minus_y": 3,
                       "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
     ("Pyramid", {"studs_x": 4, "studs_y": 4, "enable_slope": True,
-                  "slope_plus_x": 1, "slope_minus_x": 1, "slope_plus_y": 1, "slope_minus_y": 1,
+                  "slope_plus_x": 3, "slope_minus_x": 3, "slope_plus_y": 3, "slope_minus_y": 3,
                   "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
 
     # Cross + slope combo
     ("Cross + slope", {"shape_mode": "CROSS", "studs_plus_x": 2, "studs_minus_x": 2,
                         "studs_plus_y": 3, "studs_minus_y": 0,
                         "cross_width_x": 1, "cross_width_y": 1,
-                        "enable_slope": True, "slope_plus_y": 1,
+                        "enable_slope": True, "slope_plus_y": 3,
                         "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
 ]
 

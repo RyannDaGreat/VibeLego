@@ -864,10 +864,10 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
         clutch (str): "TUBE", "LATTICE", or "NONE".
         corner_radius, taper_height, taper_inset, taper_curve: Shell shape params.
         stud_taper_height, stud_taper_inset, stud_taper_curve: Stud taper params.
-        slope_plus_y (int): Flat rows for +Y slope. 0 = no slope in this direction.
-        slope_minus_y (int): Flat rows for -Y slope.
-        slope_plus_x (int): Flat rows for +X slope.
-        slope_minus_x (int): Flat rows for -X slope.
+        slope_plus_y (int): Sloped rows in +Y direction. 0 = no slope.
+        slope_minus_y (int): Sloped rows in -Y direction.
+        slope_plus_x (int): Sloped rows in +X direction.
+        slope_minus_x (int): Sloped rows in -X direction.
         slope_min_z (float): Z height where slopes terminate.
         shape_mode (str): "RECTANGLE" or "CROSS".
         plus_x, minus_x, plus_y, minus_y (int): Cross arm lengths (CROSS only).
@@ -877,21 +877,29 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
         Part: Complete slope brick.
 
     Examples:
-        >>> # slope(2, 4, slope_plus_y=1) -> 2x4 slope, 1 flat row, +Y direction
-        >>> # slope(2, 4, slope_plus_y=1, slope_minus_x=1) -> corner roof
+        >>> # slope(2, 4, slope_plus_y=3) -> 2x4 slope, 3 sloped rows in +Y
+        >>> # slope(2, 4, slope_plus_y=3, slope_minus_x=3) -> corner roof
     """
     is_cross = shape_mode == "CROSS"
 
-    # Collect active slopes
+    # Determine total rows per axis for sloped→flat conversion
+    if is_cross:
+        dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
+                                     cross_width_x, cross_width_y)
+        rows_x, rows_y = dims["total_x"], dims["total_y"]
+    else:
+        rows_x, rows_y = studs_x, studs_y
+
+    # Collect active slopes, converting sloped_rows → flat_rows
     active_slopes = []
     if slope_plus_y > 0:
-        active_slopes.append(("+Y", slope_plus_y))
+        active_slopes.append(("+Y", rows_y - slope_plus_y))
     if slope_minus_y > 0:
-        active_slopes.append(("-Y", slope_minus_y))
+        active_slopes.append(("-Y", rows_y - slope_minus_y))
     if slope_plus_x > 0:
-        active_slopes.append(("+X", slope_plus_x))
+        active_slopes.append(("+X", rows_x - slope_plus_x))
     if slope_minus_x > 0:
-        active_slopes.append(("-X", slope_minus_x))
+        active_slopes.append(("-X", rows_x - slope_minus_x))
 
     if not active_slopes:
         # No slopes active — just build a regular brick

@@ -218,7 +218,7 @@ panel_def.py (SECTIONS data)  ←  single source of truth
 Unified panel (Blender N-sidebar, "build123d" tab):
   ├── Preset dropdown (Clara Mini, LEGO Standard, etc.) + reset
   ├── Shape: shape_mode (RECTANGLE/CROSS), studs_x/y or directional params, cross widths
-  ├── [✓] Slope: enable_slope, 4 directional flat_rows (+Y/-Y/+X/-X), slope_min_z
+  ├── [✓] Slope: enable_slope, 4 directional sloped_rows (+Y/-Y/+X/-X), slope_min_z
   ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height
   ├── Walls: wall_thickness, floor_thickness, clearance
   ├── Clutch: clutch_type (TUBE/LATTICE/NONE), tube params (visible when TUBE)
@@ -330,13 +330,13 @@ directional params are 0, result is a `cross_width_x × cross_width_y` brick at 
 ### 4-Directional Slopes
 
 Replace single slope (+Y direction) with 4 independent slopes:
-- `slope_plus_x` (int, flat rows): slope descending toward +X
-- `slope_plus_y` (int, flat rows): slope descending toward +Y (current behavior)
-- `slope_minus_x` (int, flat rows): slope descending toward -X
-- `slope_minus_y` (int, flat rows): slope descending toward -Y
+- `slope_plus_x` (int, sloped rows): slope descending toward +X
+- `slope_plus_y` (int, sloped rows): slope descending toward +Y
+- `slope_minus_x` (int, sloped rows): slope descending toward -X
+- `slope_minus_y` (int, sloped rows): slope descending toward -Y
 
-Each value = number of flat stud rows before slope begins in that direction.
-0 = no slope in that direction.
+Each value = number of stud rows that are sloped in that direction.
+0 = no slope in that direction. Internally converted to flat_rows = total_rows - sloped_rows.
 
 **Multiple slopes active simultaneously**: slopes intersect. The brick is cut by
 ALL active slope planes. This enables corner roof pieces (e.g., minus_x=1 + minus_y=1
