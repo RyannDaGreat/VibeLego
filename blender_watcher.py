@@ -789,7 +789,18 @@ def _build_panel_classes(sections):
 
         for section in _sections:
             box = layout.box()
-            box.label(text=section["label"], icon=section.get("icon", "NONE"))
+            enable_key = section.get("enable_key")
+
+            # Section header: checkbox + label if toggleable, plain label otherwise
+            if enable_key:
+                header = box.row(align=True)
+                header.prop(props, enable_key, text="")
+                header.label(text=section["label"], icon=section.get("icon", "NONE"))
+                # Hide child params when section is disabled
+                if not getattr(props, enable_key):
+                    continue
+            else:
+                box.label(text=section["label"], icon=section.get("icon", "NONE"))
 
             row_keys = {k for row in section.get("rows", []) for k in row}
             visible_when = section.get("visible_when", {})
@@ -797,6 +808,10 @@ def _build_panel_classes(sections):
 
             for param in section["params"]:
                 key = param["key"]
+
+                # Skip the enable param (already drawn in header)
+                if key == enable_key:
+                    continue
 
                 # Check conditional visibility
                 if key in visible_when:

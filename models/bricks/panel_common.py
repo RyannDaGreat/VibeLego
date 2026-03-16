@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     WALL_THICKNESS, FLOOR_THICKNESS, CLEARANCE,
-    STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+    ENABLE_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
     FILLET_RADIUS, ENABLE_FILLET,
 )
 
@@ -58,12 +58,20 @@ def text_section(stud_text_default):
 
     Examples:
         >>> text_section("LEGO")["params"][0]["default"]
+        True
+        >>> text_section("LEGO")["params"][1]["default"]
         'LEGO'
     """
     return {
         "label": "Text",
         "icon": "FONT_DATA",
+        "enable_key": "enable_text",
         "params": [
+            {
+                "key": "enable_text", "json_key": "ENABLE_TEXT", "type": "bool",
+                "label": "Enable Text", "default": ENABLE_TEXT,
+                "description": "Emboss text on stud tops",
+            },
             {
                 "key": "stud_text", "json_key": "STUD_TEXT", "type": "string",
                 "label": "Stud Text", "default": stud_text_default, "maxlen": 32,
@@ -93,6 +101,7 @@ def text_section(stud_text_default):
 POLISH_SECTION = {
     "label": "Polish",
     "icon": "MOD_SMOOTH",
+    "enable_key": "enable_fillet",
     "params": [
         {
             "key": "enable_fillet", "json_key": "ENABLE_FILLET", "type": "bool",

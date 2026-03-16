@@ -58,12 +58,18 @@ def _build(params):
     studs_x = int(params.get("studs_x", 2))
     studs_y = int(params.get("studs_y", 4))
     corner_radius = float(params.get("corner_radius", 0))
-    taper_height = float(params.get("taper_height", 0))
-    taper_inset = float(params.get("taper_inset", 0))
+
+    # Zero out taper params when section is disabled
+    enable_wall_taper = params.get("enable_wall_taper", True)
+    taper_height = float(params.get("taper_height", 0)) if enable_wall_taper else 0
+    taper_inset = float(params.get("taper_inset", 0)) if enable_wall_taper else 0
     taper_curve = str(params.get("taper_curve", "LINEAR"))
-    stud_taper_height = float(params.get("stud_taper_height", 0))
-    stud_taper_inset = float(params.get("stud_taper_inset", 0))
+
+    enable_stud_taper = params.get("enable_stud_taper", True)
+    stud_taper_height = float(params.get("stud_taper_height", 0)) if enable_stud_taper else 0
+    stud_taper_inset = float(params.get("stud_taper_inset", 0)) if enable_stud_taper else 0
     stud_taper_curve = str(params.get("stud_taper_curve", "LINEAR"))
+
     return clara_lib.clara_brick(studs_x, studs_y,
                                   corner_radius=corner_radius,
                                   taper_height=taper_height,

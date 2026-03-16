@@ -69,53 +69,75 @@ SECTIONS = [
     },
     WALLS_SECTION,
     {
-        "label": "3D Printing",
+        "label": "Corner Radius",
         "icon": "MOD_BEVEL",
         "params": [
             {
                 "key": "corner_radius", "json_key": "corner_radius", "type": "float",
-                "label": "Corner Radius", "default": 2.0, "min": 0.0, "max": 4.0,
+                "label": "Radius", "default": 2.0, "min": 0.0, "max": 4.0,
                 "step": 10, "precision": 2,
                 "description": "2D corner rounding of brick outline (like CSS border-radius)",
             },
+        ],
+    },
+    {
+        "label": "Wall Taper",
+        "icon": "SORT_DESC",
+        "enable_key": "enable_wall_taper",
+        "params": [
+            {
+                "key": "enable_wall_taper", "json_key": "enable_wall_taper",
+                "type": "bool", "label": "Enable", "default": True,
+            },
             {
                 "key": "taper_height", "json_key": "taper_height", "type": "float",
-                "label": "Wall Taper Height", "default": 2.0, "min": 0.0, "max": 5.0,
+                "label": "Height", "default": 2.0, "min": 0.1, "max": 5.0,
                 "step": 10, "precision": 2,
                 "description": "How far down from top the wall taper begins (mm)",
             },
             {
                 "key": "taper_inset", "json_key": "taper_inset", "type": "float",
-                "label": "Wall Taper Inset", "default": 0.5, "min": 0.0, "max": 2.0,
+                "label": "Inset", "default": 0.5, "min": 0.01, "max": 2.0,
                 "step": 10, "precision": 2,
                 "description": "How far walls narrow at the top (mm per side)",
             },
             {
                 "key": "taper_curve", "json_key": "taper_curve", "type": "enum",
-                "label": "Wall Taper Curve", "default": "LINEAR",
+                "label": "Curve", "default": "LINEAR",
                 "items": [
                     ("LINEAR", "Linear", "Straight-line taper"),
                     ("CURVED", "Curved", "Quarter-circle: tangent to wall at bottom, tangent to deck at top"),
                 ],
             },
+        ],
+    },
+    {
+        "label": "Stud Taper",
+        "icon": "SORT_DESC",
+        "enable_key": "enable_stud_taper",
+        "params": [
+            {
+                "key": "enable_stud_taper", "json_key": "enable_stud_taper",
+                "type": "bool", "label": "Enable", "default": True,
+            },
             {
                 "key": "stud_taper_height", "json_key": "stud_taper_height",
                 "type": "float",
-                "label": "Stud Taper Height", "default": 1.5, "min": 0.0, "max": 4.0,
+                "label": "Height", "default": 1.5, "min": 0.1, "max": 4.0,
                 "step": 10, "precision": 2,
                 "description": "Height of tapered zone at top of studs (mm)",
             },
             {
                 "key": "stud_taper_inset", "json_key": "stud_taper_inset",
                 "type": "float",
-                "label": "Stud Taper Inset", "default": 0.4, "min": 0.0, "max": 1.0,
+                "label": "Inset", "default": 0.4, "min": 0.01, "max": 1.0,
                 "step": 10, "precision": 2,
                 "description": "How far stud radius narrows at top (mm)",
             },
             {
                 "key": "stud_taper_curve", "json_key": "stud_taper_curve",
                 "type": "enum",
-                "label": "Stud Taper Curve", "default": "CURVED",
+                "label": "Curve", "default": "CURVED",
                 "items": [
                     ("LINEAR", "Linear", "Straight-line stud taper"),
                     ("CURVED", "Curved", "Quarter-circle profile"),
@@ -146,9 +168,11 @@ PRESETS = [
         "params": {
             "STUD_HEIGHT": 1.8,
             "corner_radius": 0.0,
+            "enable_wall_taper": False,
             "taper_height": 0.0,
             "taper_inset": 0.0,
             "taper_curve": "LINEAR",
+            "enable_stud_taper": False,
             "stud_taper_height": 0.0,
             "stud_taper_inset": 0.0,
             "stud_taper_curve": "LINEAR",

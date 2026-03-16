@@ -22,6 +22,7 @@ CLEARANCE = 0.1         # per-side fit clearance
 
 FILLET_RADIUS = 0.15    # edge rounding
 ENABLE_FILLET = True    # toggle fillets on/off
+ENABLE_TEXT = True      # toggle stud text on/off
 STUD_TEXT = "CLARA"
 STUD_TEXT_FONT = "Arial"  # font name (system font) or path to .ttf file
 STUD_TEXT_FONT_SIZE = 1.0

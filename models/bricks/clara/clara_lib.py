@@ -32,8 +32,8 @@ from build123d import (
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
     BRICK_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
-    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, STUD_TEXT, STUD_TEXT_FONT,
-    STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, fillet_above_z,
+    CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, ENABLE_TEXT, STUD_TEXT,
+    STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, fillet_above_z,
 )
 
 
@@ -319,6 +319,9 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
 
     # Fillet above cavity only -- lattice strut edges are too thin for OCCT filleter
     result = fillet_above_z(brick.part, FILLET_RADIUS, z_threshold=cavity_z) if ENABLE_FILLET else brick.part
+
+    if not ENABLE_TEXT:
+        return result
 
     with BuildPart() as final:
         add(result)
