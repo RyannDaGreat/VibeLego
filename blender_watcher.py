@@ -660,6 +660,9 @@ def _make_bpy_property(param):
     raise ValueError(f"Unknown param type: {ptype!r}")
 
 
+_presets = []  # loaded from panel_def.PRESETS
+
+
 def _build_panel_classes(sections):
     """
     Command, general. Dynamically create a PropertyGroup and Panel class
@@ -728,13 +731,60 @@ def _build_panel_classes(sections):
         },
     )
 
-    # Capture sections for the draw() closure
+    # ── Preset operator ──
+    # Build json_key -> param_key lookup for applying preset overrides
+    _jk_to_key = {}
+    for section in sections:
+        for param in section["params"]:
+            _jk_to_key[param["json_key"]] = param["key"]
+
+    def execute_preset(self, context):
+        """Command, general. Apply a named preset: reset to defaults, then override."""
+        props = context.scene.build123d_props
+        # Reset to defaults first
+        for key, value in _defaults.items():
+            setattr(props, key, value)
+        # Apply preset overrides
+        for preset in _presets:
+            if preset["key"] == self.preset_key:
+                for jk, val in preset["params"].items():
+                    pk = _jk_to_key.get(jk)
+                    if pk and hasattr(props, pk):
+                        setattr(props, pk, val)
+                break
+        return {"FINISHED"}
+
+    PresetOp = type(
+        "BUILD123D_OT_apply_preset",
+        (bpy.types.Operator,),
+        {
+            "bl_idname": "build123d.apply_preset",
+            "bl_label": "Apply Preset",
+            "bl_description": "Apply a named preset configuration",
+            "__annotations__": {
+                "preset_key": bpy.props.StringProperty(),
+            },
+            "execute": execute_preset,
+        },
+    )
+
+    # Capture sections and presets for the draw() closure
     _sections = sections
 
     def draw_panel(self, context):
         """Command, general. Draw panel layout from section definitions."""
         layout = self.layout
-        layout.operator("build123d.reset_defaults", icon="LOOP_BACK")
+
+        # Preset buttons + reset
+        if _presets:
+            row = layout.row(align=True)
+            for preset in _presets:
+                op = row.operator("build123d.apply_preset", text=preset["label"])
+                op.preset_key = preset["key"]
+            row.operator("build123d.reset_defaults", text="", icon="LOOP_BACK")
+        else:
+            layout.operator("build123d.reset_defaults", icon="LOOP_BACK")
+
         props = context.scene.build123d_props
 
         for section in _sections:
@@ -798,7 +848,7 @@ def _build_panel_classes(sections):
         },
     )
 
-    return PropGroup, PanelClass, ResetOp
+    return PropGroup, PanelClass, ResetOp, PresetOp
 
 
 def _load_panel_def(watch_dir):
@@ -861,16 +911,23 @@ def register_panel():
     if _classify_face_fn:
         print("[panel] Anatomy highlight available")
 
+    # Load presets (optional — panel works without them)
+    global _presets
+    _presets = getattr(_panel_def, "PRESETS", [])
+    if _presets:
+        print(f"[panel] {len(_presets)} presets available: {', '.join(p['label'] for p in _presets)}")
+
     _parametric_script = os.path.join(WATCH_DIR, _panel_def.PARAMETRIC_SCRIPT)
     if not os.path.exists(_parametric_script):
         print(f"[panel] WARNING: parametric script not found: {_parametric_script}")
 
-    prop_cls, panel_cls, reset_cls = _build_panel_classes(_panel_def.SECTIONS)
+    prop_cls, panel_cls, reset_cls, preset_cls = _build_panel_classes(_panel_def.SECTIONS)
     bpy.utils.register_class(prop_cls)
     bpy.utils.register_class(reset_cls)
+    bpy.utils.register_class(preset_cls)
     bpy.utils.register_class(panel_cls)
     bpy.types.Scene.build123d_props = bpy.props.PointerProperty(type=prop_cls)
-    _registered_classes = [prop_cls, reset_cls, panel_cls]
+    _registered_classes = [prop_cls, reset_cls, preset_cls, panel_cls]
     print(f"[panel] Registered panel with {len(_panel_param_keys)} params from {WATCH_DIR}/panel_def.py")
 
     # Eagerly spawn worker so first slider change is fast

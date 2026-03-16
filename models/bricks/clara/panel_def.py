@@ -5,8 +5,11 @@ Query, specific. Pure data module (no bpy imports, no build123d imports).
 Consumed by blender_watcher.py's generic panel builder.
 
 Clara-specific: NO tube/ridge internal params. Only lattice brick type.
-Includes 3D printing features (corner radius, wall taper).
+Includes 3D printing features (corner radius, wall taper, stud taper).
 Shared sections (Walls, Text, Polish) imported from panel_common.py.
+
+Defaults are "Mini Brick" — 3D print optimized with tapered walls/studs.
+PRESETS provide named configurations (Mini Brick, LEGO Standard).
 """
 
 import os
@@ -54,7 +57,7 @@ SECTIONS = [
             },
             {
                 "key": "stud_height", "json_key": "STUD_HEIGHT", "type": "float",
-                "label": "Stud Height", "default": 1.8, "min": 0.5, "max": 5.0,
+                "label": "Stud Height", "default": 4.0, "min": 0.5, "max": 8.0,
                 "step": 10, "precision": 2,
             },
             {
@@ -71,19 +74,19 @@ SECTIONS = [
         "params": [
             {
                 "key": "corner_radius", "json_key": "corner_radius", "type": "float",
-                "label": "Corner Radius", "default": 0.0, "min": 0.0, "max": 4.0,
+                "label": "Corner Radius", "default": 2.0, "min": 0.0, "max": 4.0,
                 "step": 10, "precision": 2,
                 "description": "2D corner rounding of brick outline (like CSS border-radius)",
             },
             {
                 "key": "taper_height", "json_key": "taper_height", "type": "float",
-                "label": "Wall Taper Height", "default": 0.0, "min": 0.0, "max": 5.0,
+                "label": "Wall Taper Height", "default": 2.0, "min": 0.0, "max": 5.0,
                 "step": 10, "precision": 2,
                 "description": "How far down from top the wall taper begins (mm)",
             },
             {
                 "key": "taper_inset", "json_key": "taper_inset", "type": "float",
-                "label": "Wall Taper Inset", "default": 0.0, "min": 0.0, "max": 2.0,
+                "label": "Wall Taper Inset", "default": 0.5, "min": 0.0, "max": 2.0,
                 "step": 10, "precision": 2,
                 "description": "How far walls narrow at the top (mm per side)",
             },
@@ -98,21 +101,21 @@ SECTIONS = [
             {
                 "key": "stud_taper_height", "json_key": "stud_taper_height",
                 "type": "float",
-                "label": "Stud Taper Height", "default": 0.0, "min": 0.0, "max": 2.0,
+                "label": "Stud Taper Height", "default": 1.5, "min": 0.0, "max": 4.0,
                 "step": 10, "precision": 2,
                 "description": "Height of tapered zone at top of studs (mm)",
             },
             {
                 "key": "stud_taper_inset", "json_key": "stud_taper_inset",
                 "type": "float",
-                "label": "Stud Taper Inset", "default": 0.0, "min": 0.0, "max": 1.0,
+                "label": "Stud Taper Inset", "default": 0.4, "min": 0.0, "max": 1.0,
                 "step": 10, "precision": 2,
                 "description": "How far stud radius narrows at top (mm)",
             },
             {
                 "key": "stud_taper_curve", "json_key": "stud_taper_curve",
                 "type": "enum",
-                "label": "Stud Taper Curve", "default": "LINEAR",
+                "label": "Stud Taper Curve", "default": "CURVED",
                 "items": [
                     ("LINEAR", "Linear", "Straight-line stud taper"),
                     ("CURVED", "Curved", "Quarter-circle profile"),
@@ -122,4 +125,33 @@ SECTIONS = [
     },
     text_section("CLARA"),
     POLISH_SECTION,
+]
+
+# ── Presets ──────────────────────────────────────────────────────────────────
+# Named configurations. Each preset's "params" dict overrides SECTIONS defaults.
+# Apply a preset = reset all params to SECTIONS defaults, then apply overrides.
+# Keys are json_key values from SECTIONS params.
+
+PRESETS = [
+    {
+        "key": "MINI_BRICK",
+        "label": "Mini Brick",
+        "description": "3D print optimized with tapered walls and tall studs",
+        "params": {},  # Matches defaults — no overrides needed
+    },
+    {
+        "key": "LEGO_STANDARD",
+        "label": "LEGO Standard",
+        "description": "Standard LEGO-compatible dimensions (no taper, short studs)",
+        "params": {
+            "STUD_HEIGHT": 1.8,
+            "corner_radius": 0.0,
+            "taper_height": 0.0,
+            "taper_inset": 0.0,
+            "taper_curve": "LINEAR",
+            "stud_taper_height": 0.0,
+            "stud_taper_inset": 0.0,
+            "stud_taper_curve": "LINEAR",
+        },
+    },
 ]
