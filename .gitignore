@@ -24,3 +24,4 @@
 _preview.stl
 __pycache__/
 .claude_logs/
+renders/

@@ -67,26 +67,63 @@ run.sh <model.py>
 ```
 build123d_tests/
   run.sh                    # Entry point: ./run.sh models/lego/brick_2x4.py
-  setup.sh                  # WOM-proof: installs all dependencies
   blender_watcher.py        # Blender-side script (watches + reimports)
+  render_preview.py         # Headless Blender render: STL -> multi-angle PNGs
+  render.sh                 # Convenience wrapper for render_preview.py
   models/                   # All build123d model scripts
     example_box.py          # Simple example: box with cylindrical hole
-    lego/                   # Anatomically correct Lego brick collection
-      lego_lib.py           # Shared Lego geometry (pure functions, general)
+    lego/                   # Anatomically correct Clara brick collection
+      lego_lib.py           # Shared brick geometry (pure functions, general)
       brick_2x4.py          # Classic 2x4 brick
       brick_2x2.py          # 2x2 brick
       brick_1x1.py          # 1x1 brick
-      brick_1x2.py          # 1x2 brick
-      ...
+      brick_1x2.py          # 1x2 brick with ridge rail
+      brick_1x4.py          # 1x4 brick with ridge rail
+      brick_2x3.py          # 2x3 brick
+      plate_1x1.py          # 1x1 plate (1/3 height)
+      plate_2x4.py          # 2x4 plate
+      slope_2x2.py          # 2x2 slope brick (45-degree)
+      collection.py         # All brick types in display grid
+  renders/                  # Multi-angle render output (gitignored)
   docs/                     # Reports and documentation
     architecture.html       # Architecture plan + alternatives report
-  build123d/                # build123d source (reference, not installed from here)
+  build123d/                # build123d source (git submodule, dev branch)
   claude_instructions.md    # This file
   concerns.md               # Research log + lessons learned
   .claude_todo.md           # Task tracking
-  .venv/                    # Python venv (created by setup.sh, gitignored)
-  _preview.stl              # Live preview output (gitignored)
 ```
+
+## Clara Brick Features
+
+**Brand**: "Clara" (not Lego). All studs have raised "CLARA" text.
+
+### Stud Text Dimensions (from real Lego measurements)
+- Raised height: **0.1mm** above stud top surface
+- Text block length: ~77% of stud diameter (~3.7mm on a 4.8mm stud)
+- Letter height: ~39% of stud diameter (~1.88mm)
+- Stroke width: ~0.2mm
+- Font: bold sans-serif, centered on stud top
+- Implementation: `Text("CLARA", font_size, font_style=FontStyle.BOLD)` + `extrude(0.1)` on stud top face
+
+### Slope Bricks
+- `lego_slope(studs_x, studs_y, height, slope_edge, flat_rows)`: creates wedge/slope bricks
+- Uses `split()` with a custom `Plane` to cut the angled surface
+- Cutting plane passes from top of brick at hinge line to bottom at far edge
+- Studs only on the flat (non-sloped) portion
+- Bottom tubes/ridges still present, fillets applied (skip Z=0)
+
+### Collection Display
+- `collection.py`: generates all brick types in a grid layout
+- Rows: bricks, plates, slopes — columns: different sizes
+- Grid spacing: 5 × PITCH (40mm) between brick centers
+- All parts combined into a single `Compound` for export
+
+### VLM Render Verification
+- `render_preview.py`: headless Blender script, EEVEE engine
+- 4 diagnostic angles: front-iso (45°/30°), back-iso (225°/30°), top (89°), bottom (-89°)
+- Plastic material: white Principled BSDF, Roughness 0.25, GTAO ambient occlusion
+- 1024×1024 PNG output to `renders/` directory
+- Claude reads PNGs via Read tool for visual verification
 
 ## Convention for User Scripts
 

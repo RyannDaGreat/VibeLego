@@ -1,6 +1,6 @@
 """
-Lego brick geometry library — pure functions for generating anatomically
-correct Lego brick geometry using build123d.
+Clara brick geometry library — pure functions for generating anatomically
+correct brick geometry using build123d.
 
 All dimensions from measured Lego bricks and community CAD specifications
 (LDraw, OpenSCAD lego.scad, Christoph Bartneck measurements).
@@ -10,13 +10,14 @@ Origin at the center-bottom of the brick body (not including studs).
 """
 
 from build123d import (
-    Box, Cylinder, Location, Pos, Part,
-    Align, Axis, Mode,
-    BuildPart, add, Locations, GridLocations,
+    Box, Cylinder, Location, Pos, Part, Plane,
+    Align, Axis, Mode, Keep, FontStyle,
+    BuildPart, BuildSketch, add, Locations, GridLocations,
+    Text, extrude, split,
 )
 import math
 
-# ── Lego Dimension Constants (mm) ─────────────────────────────────────────────
+# ── Dimension Constants (mm) ─────────────────────────────────────────────────
 # Sources: LDraw spec (1 LDU = 0.4mm), OpenSCAD lego.scad, Bartneck measurements,
 #          OrionRobots specs, cfinke/LEGO.scad, LUGNET FAQ
 #
@@ -41,8 +42,13 @@ TUBE_INNER_DIAMETER = 4.8   # inner diameter (~stud diameter)
 RIDGE_WIDTH = 0.8       # width of the bottom ridge/spline rib
 RIDGE_HEIGHT = 0.8      # how far the ridge extends down from the ceiling
 
-# Fillets — real Lego bricks have subtle edge rounding
+# Fillets — real bricks have subtle edge rounding
 FILLET_RADIUS = 0.15    # edge fillet radius (measured ~0.1-0.2mm on real bricks)
+
+# Stud text — raised brand text on every stud top
+STUD_TEXT = "CLARA"
+STUD_TEXT_FONT_SIZE = 1.0   # gives ~72% width ratio on 4.8mm stud (real Lego: ~77%)
+STUD_TEXT_HEIGHT = 0.1      # raised height above stud surface (measured 0.08-0.1mm)
 
 # Derived
 STUD_RADIUS = STUD_DIAMETER / 2
@@ -54,7 +60,7 @@ TUBE_INNER_RADIUS = TUBE_INNER_DIAMETER / 2
 
 def lego_brick_body(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, general. Create the solid outer shell of a Lego brick
+    Pure function, general. Create the solid outer shell of a brick
     with hollow interior.
 
     The body is a box with walls of WALL_THICKNESS and a floor of
@@ -92,12 +98,39 @@ def lego_brick_body(studs_x, studs_y, height=BRICK_HEIGHT):
     return body.part
 
 
+def _stud_positions(studs_x, studs_y, z_offset=0.0):
+    """
+    Pure function, general. Compute stud center positions for a grid.
+
+    Args:
+        studs_x (int): Number of studs along X.
+        studs_y (int): Number of studs along Y.
+        z_offset (float): Z position of stud bases.
+
+    Returns:
+        list[Pos]: List of position objects for each stud.
+
+    Examples:
+        >>> # _stud_positions(2, 2, 9.6) -> [Pos(-4,  -4, 9.6), ...]
+    """
+    return [
+        Pos(
+            (i - (studs_x - 1) / 2) * PITCH,
+            (j - (studs_y - 1) / 2) * PITCH,
+            z_offset,
+        )
+        for i in range(studs_x)
+        for j in range(studs_y)
+    ]
+
+
 def lego_studs(studs_x, studs_y, z_offset=0.0):
     """
     Pure function, general. Create studs arranged in a grid on top of a brick.
 
     Studs are cylinders of STUD_DIAMETER x STUD_HEIGHT, positioned at
-    PITCH spacing, centered on the brick footprint.
+    PITCH spacing, centered on the brick footprint. Text is added separately
+    after filleting via lego_stud_text().
 
     Args:
         studs_x (int): Number of studs along X.
@@ -105,23 +138,13 @@ def lego_studs(studs_x, studs_y, z_offset=0.0):
         z_offset (float): Z position of stud bases. Default 0.
 
     Returns:
-        Part: All studs as a single Part.
+        Part: All studs as a single Part (no text — added later).
 
     Examples:
         >>> # lego_studs(2, 4, z_offset=9.6) -> 8 studs at Z=9.6
     """
     with BuildPart() as studs:
-        with Locations(
-            [
-                Pos(
-                    (i - (studs_x - 1) / 2) * PITCH,
-                    (j - (studs_y - 1) / 2) * PITCH,
-                    z_offset,
-                )
-                for i in range(studs_x)
-                for j in range(studs_y)
-            ]
-        ):
+        with Locations(_stud_positions(studs_x, studs_y, z_offset)):
             Cylinder(
                 STUD_RADIUS,
                 STUD_HEIGHT,
@@ -129,6 +152,40 @@ def lego_studs(studs_x, studs_y, z_offset=0.0):
             )
 
     return studs.part
+
+
+def lego_stud_text(studs_x, studs_y, z_offset=0.0):
+    """
+    Pure function, specific. Create raised "CLARA" text for all studs.
+
+    Added AFTER filleting to avoid fillet failures on tiny text edges.
+    Each stud gets 0.1mm raised bold text centered on its top face.
+
+    Args:
+        studs_x (int): Number of studs along X.
+        studs_y (int): Number of studs along Y.
+        z_offset (float): Z position of stud bases (text sits at z_offset + STUD_HEIGHT).
+
+    Returns:
+        Part: All text geometry as a single Part.
+
+    Examples:
+        >>> # lego_stud_text(2, 4, z_offset=9.6) -> "CLARA" on 8 studs
+    """
+    text_z = z_offset + STUD_HEIGHT
+
+    with BuildPart() as texts:
+        with Locations(_stud_positions(studs_x, studs_y, text_z)):
+            with BuildSketch(Plane.XY):
+                Text(
+                    STUD_TEXT,
+                    font_size=STUD_TEXT_FONT_SIZE,
+                    font_style=FontStyle.BOLD,
+                    align=(Align.CENTER, Align.CENTER),
+                )
+            extrude(amount=STUD_TEXT_HEIGHT)
+
+    return texts.part
 
 
 def lego_bottom_tubes(studs_x, studs_y, height=BRICK_HEIGHT):
@@ -228,14 +285,36 @@ def lego_bottom_ridge(studs_x, studs_y, height=BRICK_HEIGHT):
     return ridge.part
 
 
+def _apply_fillets(result):
+    """
+    Pure function, specific. Apply fillets to all edges except the bottom
+    plane (Z=0) for 3D printability.
+
+    Must be called BEFORE adding stud text — text edges are too small
+    for the fillet radius and will cause OCCT failures.
+
+    Args:
+        result (Part): Solid to fillet.
+
+    Returns:
+        Part: Filleted solid.
+
+    Examples:
+        >>> # _apply_fillets(some_brick) -> same brick with 0.15mm fillets
+    """
+    bottom_edges = [e for e in result.edges() if abs(e.center().Z) < 0.01]
+    fillet_edges = [e for e in result.edges() if e not in bottom_edges]
+    return result.fillet(FILLET_RADIUS, fillet_edges)
+
+
 # ── Specific brick builders ────────────────────────────────────────────────────
 
 def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
     """
-    Pure function, general. Create a complete anatomically correct Lego brick.
+    Pure function, general. Create a complete anatomically correct brick.
 
-    Assembles: hollow body + studs on top + bottom tubes (2+ wide) or
-    bottom ridge (1-wide).
+    Assembles: hollow body + studs with "CLARA" text on top + bottom
+    tubes (2+ wide) or bottom ridge (1-wide) + fillets.
 
     Args:
         studs_x (int): Studs along X (e.g., 2 for a 2x4 brick).
@@ -244,13 +323,14 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
             Use PLATE_HEIGHT (3.2mm) for plates.
 
     Returns:
-        Part: Complete Lego brick.
+        Part: Complete brick.
 
     Examples:
         >>> # lego_brick(2, 4) -> classic 2x4 brick
         >>> # lego_brick(1, 1) -> 1x1 brick
         >>> # lego_brick(2, 2, PLATE_HEIGHT) -> 2x2 plate
     """
+    # Build structural geometry (body + studs + tubes/ridges)
     with BuildPart() as brick:
         add(lego_brick_body(studs_x, studs_y, height))
         add(lego_studs(studs_x, studs_y, z_offset=height))
@@ -263,11 +343,114 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
         if ridge is not None:
             add(ridge)
 
+    # Fillet BEFORE text (text edges are too small for OCCT filleter)
+    result = _apply_fillets(brick.part)
+
+    # Add raised text on stud tops
+    with BuildPart() as final:
+        add(result)
+        add(lego_stud_text(studs_x, studs_y, z_offset=height))
+
+    return final.part
+
+
+def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
+    """
+    Pure function, specific. Create a slope/wedge brick.
+
+    The brick body is cut at an angle from the top of the flat portion
+    down to the bottom of the far edge. Only studs on the flat (non-sloped)
+    rows are retained. Bottom tubes/ridges are still present.
+
+    The slope descends toward +Y (the "back" of the brick). The flat_rows
+    parameter controls how many rows of studs remain on the front.
+
+    Args:
+        studs_x (int): Studs along X.
+        studs_y (int): Studs along Y (must be >= 2).
+        height (float): Body height. Default BRICK_HEIGHT.
+        flat_rows (int): Number of stud rows on the flat top. Default 1.
+
+    Returns:
+        Part: Slope brick with angled top surface.
+
+    Examples:
+        >>> # lego_slope(2, 2) -> 2x2 slope, 1 flat row, 1 sloped row
+        >>> # lego_slope(2, 4, flat_rows=2) -> 2x4 slope, 2 flat rows
+    """
+    outer_y = studs_y * PITCH - 2 * CLEARANCE
+
+    # Build full body + studs only on flat rows + bottom structure
+    with BuildPart() as brick:
+        add(lego_brick_body(studs_x, studs_y, height))
+
+        # Only place studs on flat_rows (front rows, toward -Y)
+        # Stud positions: j=0 is the -Y side, j=studs_y-1 is the +Y side
+        # We keep j < flat_rows
+        # Studs only on flat rows (toward -Y)
+        flat_stud_positions = [
+            Pos(
+                (i - (studs_x - 1) / 2) * PITCH,
+                (j - (studs_y - 1) / 2) * PITCH,
+                height,
+            )
+            for i in range(studs_x)
+            for j in range(flat_rows)
+        ]
+        if flat_stud_positions:
+            with Locations(flat_stud_positions):
+                Cylinder(
+                    STUD_RADIUS,
+                    STUD_HEIGHT,
+                    align=(Align.CENTER, Align.CENTER, Align.MIN),
+                )
+
+        tubes = lego_bottom_tubes(studs_x, studs_y, height)
+        if tubes is not None:
+            add(tubes)
+
+        ridge = lego_bottom_ridge(studs_x, studs_y, height)
+        if ridge is not None:
+            add(ridge)
+
     result = brick.part
 
-    # Apply fillets to all edges except bottom (Z=0) for 3D printability
-    bottom_edges = [e for e in result.edges() if abs(e.center().Z) < 0.01]
-    fillet_edges = [e for e in result.edges() if e not in bottom_edges]
-    result = result.fillet(FILLET_RADIUS, fillet_edges)
+    # Cut the slope: plane from top at hinge to bottom at far edge
+    hinge_y = -outer_y / 2 + flat_rows * PITCH
+    slope_dy = outer_y / 2 - hinge_y
+    slope_dz = height
+    cut_plane = Plane(
+        origin=(0, hinge_y, height),
+        x_dir=(1, 0, 0),
+        z_dir=(0, slope_dz, slope_dy),
+    )
+    result = split(result, bisect_by=cut_plane, keep=Keep.BOTTOM)
+
+    # Fillet, then add text on flat studs
+    result = _apply_fillets(result)
+
+    # Add raised text on the flat studs only
+    text_positions = [
+        Pos(
+            (i - (studs_x - 1) / 2) * PITCH,
+            (j - (studs_y - 1) / 2) * PITCH,
+            height + STUD_HEIGHT,
+        )
+        for i in range(studs_x)
+        for j in range(flat_rows)
+    ]
+    if text_positions:
+        with BuildPart() as final:
+            add(result)
+            with Locations(text_positions):
+                with BuildSketch(Plane.XY):
+                    Text(
+                        STUD_TEXT,
+                        font_size=STUD_TEXT_FONT_SIZE,
+                        font_style=FontStyle.BOLD,
+                        align=(Align.CENTER, Align.CENTER),
+                    )
+                extrude(amount=STUD_TEXT_HEIGHT)
+        result = final.part
 
     return result
