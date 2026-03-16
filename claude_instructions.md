@@ -88,11 +88,40 @@ build123d_tests/
   docs/                     # Reports and documentation
     architecture.html       # Architecture plan + alternatives report
   build123d/                # build123d source (git submodule, dev branch)
-  CLAUDE.md                 # Local Claude instructions (VLM verification rule)
-  claude_instructions.md    # This file
-  concerns.md               # Research log + lessons learned
-  .claude_todo.md           # Task tracking
+  build_worker.py             # Persistent build subprocess (keeps build123d imported)
+  CLAUDE.md                   # Local Claude instructions (VLM verification rule)
+  claude_instructions.md      # This file
+  concerns.md                 # Research log + lessons learned
+  .claude_todo.md             # Task tracking
 ```
+
+### Interactive Parameter Panel
+
+**Philosophy**: Sliders are for exploration. Permanent changes go through Claude editing code.
+
+```
+Blender N-sidebar ("build123d" tab)
+  ├── Reset to Defaults button
+  ├── Shape: brick_type (enum), studs_x, studs_y, flat_rows
+  ├── Dimensions: pitch, stud_diameter, stud_height, brick_height, plate_height
+  ├── Walls: wall_thickness, floor_thickness, clearance
+  ├── Internals: tube_outer_diameter, tube_inner_diameter, ridge_width/height
+  └── Polish: fillet_radius, stud_text_font_size, stud_text_height
+```
+
+**Architecture**: Panel definitions are data-driven. Model-specific params live in `models/<type>/panel_def.py` (pure data, no bpy). General panel infrastructure in `blender_watcher.py` dynamically builds Blender PropertyGroup + Panel from any `panel_def.py` found in the watched directory.
+
+**Persistent worker** (`build_worker.py`): Keeps build123d imported across slider changes. Spawned as a child process of Blender (stdin/stdout pipes, not sockets). Eliminates the 1.3s import cost per rebuild — steady-state ~0.9s vs ~2.5s without worker.
+
+**Hot-reload**: When the file watcher detects .py changes in the model directory:
+1. Worker is killed (respawns on next slider use with fresh imports)
+2. Panel is unregistered and re-registered from updated `panel_def.py`
+3. All slider values reset to defaults
+
+**Files**:
+- `build_worker.py` — general persistent worker (repo root)
+- `models/lego/panel_def.py` — lego-specific parameter definitions + layout
+- `models/lego/parametric.py` — lego-specific build entry point (exposes `run(params, stl_path)`)
 
 ## Clara Brick Features
 

@@ -31,3 +31,7 @@ https://build123d.readthedocs.io/en/latest/cheat_sheet.html
 - Planes: `Plane.XY`, `.offset()`, custom `Plane(origin, x_dir, z_dir)`
 
 **The principle: if you're writing manual math for positioning, clipping, shelling, or grid layout — you're probably doing it wrong.** Check the docs.
+
+## Blender Panel Sliders: Exploration Only
+
+Panel sliders are for the user to explore parameter space interactively. When the user wants a permanent change, they ask Claude to update `panel_def.py` defaults or `lego_lib.py` constants — not by saving slider state.

@@ -68,6 +68,7 @@ _panel_def = None          # loaded from WATCH_DIR/panel_def.py if present
 _panel_param_keys = []     # [(blender_key, json_key), ...] built at registration
 _parametric_script = None  # absolute path to the parametric build script
 _worker = None             # persistent Popen process (build_worker.py)
+_registered_classes = []   # classes to unregister on panel hot-reload
 
 WORKER_SCRIPT = os.path.join(REPO_ROOT, "build_worker.py")
 
@@ -569,6 +570,20 @@ def _load_panel_def(watch_dir):
     return mod
 
 
+def _unregister_panel():
+    """
+    Command, general. Unregister all dynamically created panel classes.
+    Called before hot-reloading panel_def.py.
+    """
+    global _registered_classes
+    if hasattr(bpy.types.Scene, "build123d_props"):
+        del bpy.types.Scene.build123d_props
+    # Unregister in reverse order (panel first, then operator, then property group)
+    for cls in reversed(_registered_classes):
+        bpy.utils.unregister_class(cls)
+    _registered_classes = []
+
+
 def register_panel():
     """
     Command, general. Discover panel_def.py in the watched directory,
@@ -576,7 +591,7 @@ def register_panel():
     panel_def.py exists, the panel is simply not created (file watcher
     still works).
     """
-    global _panel_def, _parametric_script
+    global _panel_def, _parametric_script, _registered_classes
 
     _panel_def = _load_panel_def(WATCH_DIR)
     if _panel_def is None:
@@ -592,10 +607,22 @@ def register_panel():
     bpy.utils.register_class(reset_cls)
     bpy.utils.register_class(panel_cls)
     bpy.types.Scene.build123d_props = bpy.props.PointerProperty(type=prop_cls)
+    _registered_classes = [prop_cls, reset_cls, panel_cls]
     print(f"[panel] Registered panel with {len(_panel_param_keys)} params from {WATCH_DIR}/panel_def.py")
 
     # Eagerly spawn worker so first slider change is fast
     _spawn_worker()
+
+
+def reload_panel():
+    """
+    Command, general. Hot-reload the panel from panel_def.py. Unregisters
+    old classes, reimports the definition, and registers fresh ones. All
+    property values reset to defaults.
+    """
+    print("[panel] Hot-reloading panel_def.py...")
+    _unregister_panel()
+    register_panel()
 
 
 # ── File watcher ───────────────────────────────────────────────────────────────
@@ -643,6 +670,10 @@ def poll_source_file():
         # Kill the persistent worker so it respawns with fresh imports
         if _worker is not None:
             _kill_worker()
+
+        # Hot-reload panel if panel_def.py was the file that changed
+        if _registered_classes:
+            reload_panel()
 
         if run_build(SOURCE_FILE, STL_PATH):
             # Check if STL was actually produced/updated
