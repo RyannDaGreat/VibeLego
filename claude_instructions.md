@@ -70,11 +70,29 @@ build123d_tests/
   setup.sh                  # WOM-proof: installs all dependencies
   blender_watcher.py        # Blender-side script (watches + reimports)
   models/                   # User's build123d model scripts
-    example_box.py          # Example model
+    example_box.py          # Example: box with cylindrical hole
   build123d/                # build123d source (reference, not installed from here)
+  report.html               # Architecture plan + alternatives report
   claude_instructions.md    # This file
   concerns.md               # Research log + lessons learned
   .claude_todo.md           # Task tracking
+  .venv/                    # Python venv (created by setup.sh, gitignored)
+  _preview.stl              # Live preview output (gitignored)
+```
+
+## Convention for User Scripts
+
+User scripts receive the STL output path via the `BUILD123D_PREVIEW_STL` environment variable.
+The standard pattern:
+
+```python
+import os
+from build123d import *
+
+result = Box(10, 20, 30) - Cylinder(5, 40)
+
+stl_path = os.environ.get("BUILD123D_PREVIEW_STL", "_preview.stl")
+export_stl(result, stl_path)
 ```
 
 ## System Requirements (WOM Documentation)

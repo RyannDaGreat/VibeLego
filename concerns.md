@@ -47,3 +47,18 @@ Launched 7 agents to investigate all angles before writing any code:
 5. **CQ-editor reliability warning**: CQ-editor's auto-reload "randomly stops working" (GitHub issue #280). Our file watcher must be more robust — use mtime comparison, not content hashing.
 
 6. **Orphan data accumulation**: Every STL reimport in Blender can create orphan mesh datablocks if not cleaned up. Must explicitly remove temporary import objects and meshes.
+
+## 2026-03-15: Implementation Phase
+
+### Implementation Notes
+
+- Implemented subprocess + STL file watcher as planned. ~250 lines total across 4 files.
+- **setup.sh**: Prefers Python 3.13 over 3.14 (better compatibility). Falls back through 3.13→3.12→3.11→3.10→3.14→generic. Detects Blender via app bundle path, PATH, then macOS Spotlight.
+- **blender_watcher.py**: Uses `clear_geometry()` + `from_pydata()` for mesh updates. First import creates the preview object; subsequent imports update in-place. Explicitly removes temporary import objects and orphan meshes (addressing risk #6).
+- **run.sh**: Passes source path, Python path, and STL path to Blender via `--` separator. All paths resolved to absolute before passing.
+- **Convention**: User scripts get `BUILD123D_PREVIEW_STL` env var for STL output path. Simple, no magic.
+- Version-safe STL import: checks `hasattr(bpy.ops.wm, "stl_import")` at runtime (addressing risk #2).
+
+### Concern: build123d not yet tested on this machine
+- setup.sh has not been run yet. build123d may fail to install if OCP wheels aren't available for the detected Python version. This is a known risk — the setup script handles it by preferring Python 3.13.
+- End-to-end test (run.sh → Blender → mesh update) not yet performed. Need to verify the full pipeline works.
