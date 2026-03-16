@@ -7,13 +7,16 @@ lego_lib module constants, and builds the requested brick type.
 
 Works standalone too — without BUILD123D_PARAMS, builds a default 2x4 brick.
 
-Usage (via blender_watcher.py panel, not directly):
+Worker interface: exposes run(params, stl_path) for build_worker.py.
+
+Usage (standalone):
     BUILD123D_PARAMS=/tmp/params.json BUILD123D_PREVIEW_STL=out.stl uv run parametric.py
 """
 
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -50,7 +53,7 @@ DERIVED_CONSTANTS = {
 }
 
 
-def apply_overrides(params):
+def _apply_overrides(params):
     """
     Command, specific. Patch lego_lib module constants from a params dict.
     Only keys present in OVERRIDABLE_CONSTANTS are applied; unknown keys
@@ -67,7 +70,7 @@ def apply_overrides(params):
         setattr(lego_lib, key, compute())
 
 
-def build(params):
+def _build(params):
     """
     Pure function, specific. Build a brick from params dict.
 
@@ -79,7 +82,7 @@ def build(params):
         Part: The built brick geometry.
 
     Examples:
-        >>> # build({"brick_type": "BRICK", "studs_x": 2, "studs_y": 4})
+        >>> # _build({"brick_type": "BRICK", "studs_x": 2, "studs_y": 4})
     """
     brick_type = params.get("brick_type", "BRICK")
     studs_x = int(params.get("studs_x", 2))
@@ -94,21 +97,46 @@ def build(params):
         return lego_lib.lego_brick(studs_x, studs_y)
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
+def run(params, stl_path):
+    """
+    Command, specific. Standard worker interface. Apply param overrides,
+    build geometry, export STL, return info dict.
 
-params_path = os.environ.get("BUILD123D_PARAMS")
-if params_path and os.path.exists(params_path):
-    with open(params_path) as f:
-        params = json.load(f)
-else:
-    params = {"brick_type": "BRICK", "studs_x": 2, "studs_y": 4}
+    Args:
+        params (dict): All panel parameters (shape + dimension overrides).
+        stl_path (str): Path to write the STL file.
 
-apply_overrides(params)
-result = build(params)
+    Returns:
+        dict: Build info — faces count, timing.
+    """
+    _apply_overrides(params)
 
-stl_path = os.environ.get("BUILD123D_PREVIEW_STL", "_preview.stl")
-export_stl(result, stl_path)
-brick_type = params.get("brick_type", "BRICK")
-studs_x = int(params.get("studs_x", 2))
-studs_y = int(params.get("studs_y", 4))
-print(f"{brick_type} {studs_x}x{studs_y} -> {stl_path} ({len(result.faces())} faces)")
+    t0 = time.perf_counter()
+    result = _build(params)
+    t_build = time.perf_counter() - t0
+
+    t1 = time.perf_counter()
+    export_stl(result, stl_path)
+    t_export = time.perf_counter() - t1
+
+    faces = len(result.faces())
+    return {"faces": faces, "build": round(t_build, 3), "export": round(t_export, 3)}
+
+
+# ── Standalone entry point ──────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    params_path = os.environ.get("BUILD123D_PARAMS")
+    if params_path and os.path.exists(params_path):
+        with open(params_path) as f:
+            params = json.load(f)
+    else:
+        params = {"brick_type": "BRICK", "studs_x": 2, "studs_y": 4}
+
+    stl_path = os.environ.get("BUILD123D_PREVIEW_STL", "_preview.stl")
+    info = run(params, stl_path)
+    brick_type = params.get("brick_type", "BRICK")
+    studs_x = int(params.get("studs_x", 2))
+    studs_y = int(params.get("studs_y", 4))
+    print(f"{brick_type} {studs_x}x{studs_y} -> {stl_path} ({info['faces']} faces)")
+    print(f"  timing: build={info['build']:.2f}s  export={info['export']:.2f}s")

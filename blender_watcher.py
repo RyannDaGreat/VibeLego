@@ -67,6 +67,9 @@ _panel_rebuild_pending = False
 _panel_def = None          # loaded from WATCH_DIR/panel_def.py if present
 _panel_param_keys = []     # [(blender_key, json_key), ...] built at registration
 _parametric_script = None  # absolute path to the parametric build script
+_worker = None             # persistent Popen process (build_worker.py)
+
+WORKER_SCRIPT = os.path.join(REPO_ROOT, "build_worker.py")
 
 
 # ── Scene setup ────────────────────────────────────────────────────────────────
@@ -84,8 +87,8 @@ def clear_default_scene():
 def setup_viewport():
     """
     Command, specific. Configure the 3D viewport for CAD preview:
-    orthographic projection, solid shading with studio lighting,
-    material colors visible.
+    orthographic projection, matcap shading with ceramic studio light,
+    cavity highlighting for edge definition.
     """
     for area in bpy.context.screen.areas:
         if area.type == "VIEW_3D":
@@ -93,8 +96,10 @@ def setup_viewport():
                 if space.type == "VIEW_3D":
                     space.region_3d.view_perspective = "ORTHO"
                     space.shading.type = "SOLID"
-                    space.shading.light = "STUDIO"
-                    space.shading.color_type = "MATERIAL"
+                    space.shading.light = "MATCAP"
+                    space.shading.studio_light = "ceramic_lightbulb.exr"
+                    space.shading.show_cavity = True
+                    space.shading.cavity_type = "BOTH"
                     space.overlay.show_floor = True
                     space.overlay.show_axis_x = True
                     space.overlay.show_axis_y = True
@@ -232,6 +237,76 @@ def run_build(source_path, stl_path):
     return True
 
 
+# ── Persistent worker ─────────────────────────────────────────────────────
+
+def _spawn_worker():
+    """
+    Command, general. Spawn the persistent build worker process. The
+    worker imports build123d once and then accepts JSON build requests
+    on stdin. Returns the Popen object, or None if spawn failed.
+
+    Returns:
+        subprocess.Popen or None
+    """
+    global _worker
+
+    if _worker is not None:
+        _kill_worker()
+
+    proc = subprocess.Popen(
+        [UV_PATH, "run", "--with", BUILD123D_SUBMODULE,
+         WORKER_SCRIPT, _parametric_script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=os.path.dirname(_parametric_script),
+    )
+
+    # Wait for ready signal
+    ready_line = proc.stdout.readline()
+    if not ready_line:
+        print("[worker] ERROR: worker exited before ready signal")
+        stderr = proc.stderr.read()
+        if stderr.strip():
+            for line in stderr.strip().split("\n"):
+                print(f"[worker]   {line}")
+        return None
+
+    ready = json.loads(ready_line)
+    print(f"[worker] Spawned (import took {ready.get('import_time', '?')}s)")
+    _worker = proc
+    return proc
+
+
+def _kill_worker():
+    """
+    Command, general. Kill the persistent worker if it's running.
+    """
+    global _worker
+    if _worker is not None:
+        _worker.stdin.close()
+        _worker.wait(timeout=5)
+        print("[worker] Killed (will respawn on next slider change)")
+        _worker = None
+
+
+def _get_worker():
+    """
+    Query, general. Get the running worker, spawning it if needed.
+
+    Returns:
+        subprocess.Popen or None
+    """
+    global _worker
+    if _worker is not None and _worker.poll() is not None:
+        print("[worker] Worker died unexpectedly, respawning...")
+        _worker = None
+    if _worker is None:
+        return _spawn_worker()
+    return _worker
+
+
 # ── Panel rebuild (debounced) ──────────────────────────────────────────────
 
 def panel_params_to_dict():
@@ -248,8 +323,8 @@ def panel_params_to_dict():
 
 def _do_panel_rebuild():
     """
-    Command, general. Debounce timer callback. Writes panel params to
-    a JSON temp file, runs the parametric script, and updates the mesh.
+    Command, general. Debounce timer callback. Sends params to the
+    persistent worker via stdin, reads the response, updates the mesh.
 
     Returns:
         None: One-shot timer (does not repeat).
@@ -257,36 +332,40 @@ def _do_panel_rebuild():
     global _panel_rebuild_pending
     _panel_rebuild_pending = False
 
+    worker = _get_worker()
+    if worker is None:
+        print("[panel] ERROR: no worker available")
+        return None
+
     params = panel_params_to_dict()
-    params_path = os.path.join(tempfile.gettempdir(), "build123d_params.json")
-    with open(params_path, "w") as f:
-        json.dump(params, f)
+    params["stl_path"] = PANEL_STL_PATH
 
-    print(f"[panel] Rebuilding with {len(params)} params...")
+    print(f"[panel] Rebuilding...")
+    t_start = time.perf_counter()
 
-    env = os.environ.copy()
-    env["BUILD123D_PREVIEW_STL"] = PANEL_STL_PATH
-    env["BUILD123D_PARAMS"] = params_path
+    worker.stdin.write(json.dumps(params) + "\n")
+    worker.stdin.flush()
 
-    result = subprocess.run(
-        [UV_PATH, "run", "--with", BUILD123D_SUBMODULE, _parametric_script],
-        env=env,
-        capture_output=True,
-        text=True,
-        cwd=os.path.dirname(_parametric_script),
-    )
+    response_line = worker.stdout.readline()
+    if not response_line:
+        print("[panel] ERROR: worker died during build, respawning...")
+        _kill_worker()
+        return None
 
-    if result.stdout.strip():
-        print(f"[panel] {result.stdout.strip()}")
+    t_worker = time.perf_counter() - t_start
+    response = json.loads(response_line)
 
-    if result.returncode != 0:
-        print(f"[panel] ERROR (exit {result.returncode}):")
-        for line in result.stderr.strip().split("\n"):
-            print(f"[panel]   {line}")
+    if not response.get("ok"):
+        print(f"[panel] ERROR: {response}")
         return None
 
     if os.path.exists(PANEL_STL_PATH):
+        t_mesh_start = time.perf_counter()
         update_mesh_from_stl(PANEL_STL_PATH)
+        t_mesh = time.perf_counter() - t_mesh_start
+        build_t = response.get("build", "?")
+        export_t = response.get("export", "?")
+        print(f"[panel] build={build_t}s  export={export_t}s  mesh={t_mesh:.2f}s  total={t_worker + t_mesh:.2f}s")
 
     return None
 
@@ -375,10 +454,32 @@ def _build_panel_classes(sections):
             annotations[param["key"]] = _make_bpy_property(param)
             _panel_param_keys.append((param["key"], param["json_key"]))
 
+    # Build defaults dict for the reset operator
+    _defaults = {param["key"]: param["default"]
+                 for section in sections for param in section["params"]}
+
     PropGroup = type(
         "Build123dProperties",
         (bpy.types.PropertyGroup,),
         {"__annotations__": annotations},
+    )
+
+    def execute_reset(self, context):
+        """Command, general. Reset all panel properties to their defaults."""
+        props = context.scene.build123d_props
+        for key, value in _defaults.items():
+            setattr(props, key, value)
+        return {"FINISHED"}
+
+    ResetOp = type(
+        "BUILD123D_OT_reset_defaults",
+        (bpy.types.Operator,),
+        {
+            "bl_idname": "build123d.reset_defaults",
+            "bl_label": "Reset to Defaults",
+            "bl_description": "Reset all parameters to their default values",
+            "execute": execute_reset,
+        },
     )
 
     # Capture sections for the draw() closure
@@ -387,6 +488,7 @@ def _build_panel_classes(sections):
     def draw_panel(self, context):
         """Command, general. Draw panel layout from section definitions."""
         layout = self.layout
+        layout.operator("build123d.reset_defaults", icon="LOOP_BACK")
         props = context.scene.build123d_props
 
         for section in _sections:
@@ -442,7 +544,7 @@ def _build_panel_classes(sections):
         },
     )
 
-    return PropGroup, PanelClass
+    return PropGroup, PanelClass, ResetOp
 
 
 def _load_panel_def(watch_dir):
@@ -485,11 +587,15 @@ def register_panel():
     if not os.path.exists(_parametric_script):
         print(f"[panel] WARNING: parametric script not found: {_parametric_script}")
 
-    prop_cls, panel_cls = _build_panel_classes(_panel_def.SECTIONS)
+    prop_cls, panel_cls, reset_cls = _build_panel_classes(_panel_def.SECTIONS)
     bpy.utils.register_class(prop_cls)
+    bpy.utils.register_class(reset_cls)
     bpy.utils.register_class(panel_cls)
     bpy.types.Scene.build123d_props = bpy.props.PointerProperty(type=prop_cls)
     print(f"[panel] Registered panel with {len(_panel_param_keys)} params from {WATCH_DIR}/panel_def.py")
+
+    # Eagerly spawn worker so first slider change is fast
+    _spawn_worker()
 
 
 # ── File watcher ───────────────────────────────────────────────────────────────
@@ -533,6 +639,10 @@ def poll_source_file():
     if dir_mtime != _last_dir_mtime:
         _last_dir_mtime = dir_mtime
         print(f"[watcher] .py file changed in {WATCH_DIR}, rebuilding...")
+
+        # Kill the persistent worker so it respawns with fresh imports
+        if _worker is not None:
+            _kill_worker()
 
         if run_build(SOURCE_FILE, STL_PATH):
             # Check if STL was actually produced/updated
