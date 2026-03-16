@@ -273,6 +273,10 @@ def main():
     clear_default_scene()
     setup_viewport()
 
+    # Register watcher FIRST — so it runs even if initial build has issues
+    bpy.app.timers.register(poll_source_file, first_interval=POLL_INTERVAL_SECONDS, persistent=True)
+    print("[watcher] File watcher active. Edit your source file to see changes.")
+
     # Initial build
     if os.path.exists(SOURCE_FILE):
         global _last_source_mtime, _last_stl_mtime
@@ -283,10 +287,6 @@ def main():
             if os.path.exists(STL_PATH):
                 _last_stl_mtime = os.path.getmtime(STL_PATH)
                 update_mesh_from_stl(STL_PATH)
-
-    # Start polling
-    bpy.app.timers.register(poll_source_file, first_interval=POLL_INTERVAL_SECONDS, persistent=True)
-    print("[watcher] File watcher active. Edit your source file to see changes.")
 
 
 main()
