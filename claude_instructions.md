@@ -66,13 +66,21 @@ run.sh <model.py>
 
 ```
 build123d_tests/
-  run.sh                    # Entry point: ./run.sh models/box.py
+  run.sh                    # Entry point: ./run.sh models/lego/brick_2x4.py
   setup.sh                  # WOM-proof: installs all dependencies
   blender_watcher.py        # Blender-side script (watches + reimports)
-  models/                   # User's build123d model scripts
-    example_box.py          # Example: box with cylindrical hole
+  models/                   # All build123d model scripts
+    example_box.py          # Simple example: box with cylindrical hole
+    lego/                   # Anatomically correct Lego brick collection
+      lego_lib.py           # Shared Lego geometry (pure functions, general)
+      brick_2x4.py          # Classic 2x4 brick
+      brick_2x2.py          # 2x2 brick
+      brick_1x1.py          # 1x1 brick
+      brick_1x2.py          # 1x2 brick
+      ...
+  docs/                     # Reports and documentation
+    architecture.html       # Architecture plan + alternatives report
   build123d/                # build123d source (reference, not installed from here)
-  report.html               # Architecture plan + alternatives report
   claude_instructions.md    # This file
   concerns.md               # Research log + lessons learned
   .claude_todo.md           # Task tracking
