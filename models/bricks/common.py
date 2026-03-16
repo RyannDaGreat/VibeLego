@@ -8,7 +8,8 @@ Coordinate convention: brick sits on XY plane, studs point up (+Z).
 Origin at the center-bottom of the brick body (not including studs).
 """
 
-from build123d import Axis
+# NOTE: No build123d imports at module level — this file is imported by
+# panel_common.py → panel_def.py which runs in Blender's Python (no build123d).
 
 # ── Dimension Constants (mm) ─────────────────────────────────────────────────
 # Base unit: 1 LDU = 0.4mm. Stud pitch = 20 LDU = 8.0mm.
@@ -67,6 +68,7 @@ def bevel_above_z(part, radius, z_threshold=0.0, tolerance=0.01,
         >>> # bevel_above_z(box, 0.15, include_bottom=True) -> fillets ALL edges
         >>> # bevel_above_z(box, 0.15, skip_concave=True) -> exterior corners only
     """
+    from build123d import Axis
     above = part.edges().filter_by_position(
         Axis.Z, z_threshold + tolerance, float('inf'), inclusive=(False, True)
     )
