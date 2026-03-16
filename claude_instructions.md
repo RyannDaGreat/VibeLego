@@ -455,6 +455,27 @@ When enabled, 4 directional `flat_rows` sliders (+Y/-Y/+X/-X) + `slope_min_z`.
 - Grid spacing: 5 × PITCH (40mm) between brick centers
 - All parts combined into a single `Compound` for export
 
+### Testing Strategy (3 layers)
+
+1. **Pure math tests** (`models/bricks/tests/test_lattice.py`): Verify geometry
+   algorithms without importing build123d. Fast, deterministic, no CAD kernel
+   dependency. Use these for anything computable from first principles (strut
+   dimensions, tangent contact, symmetry). Run with `uv run models/bricks/tests/test_lattice.py`.
+
+2. **Integration tests** (`scratchpad.py`): Run every configuration through the
+   full build pipeline (parametric.py → brick_lib → build123d → STL export).
+   Catches build123d API issues, boolean failures, and unexpected face counts.
+   Run with `uv run scratchpad.py`. Each config verified by face count + no exception.
+
+3. **VLM render verification**: Visual inspection of multi-angle diagnostic renders.
+   Catches visual bugs (exposed cavities, missing features, holes) that face counts
+   miss. Use `./render.sh` + Read tool. Required for any new geometry.
+
+Why 3 layers: math tests are fast but can't catch CAD kernel bugs. Integration tests
+catch build failures but can't see visual problems. VLM catches what the other two miss.
+New pure-math helpers should get their own test functions in `tests/`. New brick configs
+should be added to `scratchpad.py`. New geometry changes always get VLM rendered.
+
 ### VLM Render Verification
 - `render_preview.py`: headless Blender script, EEVEE engine
 - 14 diagnostic angles: 6 cardinal (front/back/left/right/top/bottom) + 8 diagonal (±30° elevation at 45°/135°/225°/315° azimuth)

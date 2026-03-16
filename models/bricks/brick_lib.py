@@ -22,7 +22,7 @@ from build123d import (
     Box, Circle, Cylinder, Rectangle, RectangleRounded, Pos, Rot, Plane,
     Align, Keep, Mode, FontStyle,
     BuildPart, BuildSketch, add, Locations, GridLocations,
-    Text, extrude, loft, split,
+    Text, extrude, loft, split, fillet as bd_fillet,
 )
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
@@ -471,6 +471,40 @@ def _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
     }
 
 
+def _cross_concave_vertices(sketch, v_w, h_h):
+    """
+    Pure function, specific. Identify concave (reentrant) vertices in a cross sketch.
+
+    Concave vertices are at the inner corners where arms meet — they sit at the
+    junction box coordinates (±v_w/2, ±h_h/2) where v_w is the vertical bar width
+    and h_h is the horizontal bar height.
+
+    Args:
+        sketch (BuildSketch): The cross-shaped sketch.
+        v_w (float): Vertical bar width (determines X of junction corners).
+        h_h (float): Horizontal bar height (determines Y of junction corners).
+
+    Returns:
+        tuple[list[Vertex], list[Vertex]]: (convex_vertices, concave_vertices).
+
+    Examples:
+        >>> # convex, concave = _cross_concave_vertices(sk, 7.8, 7.8)
+        >>> # len(concave)  -> 4 for a + shape
+    """
+    jx = v_w / 2
+    jy = h_h / 2
+    convex = []
+    concave = []
+    for v in sketch.vertices():
+        at_jx = abs(abs(v.X) - jx) < 0.01
+        at_jy = abs(abs(v.Y) - jy) < 0.01
+        if at_jx and at_jy:
+            concave.append(v)
+        else:
+            convex.append(v)
+    return convex, concave
+
+
 def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
                        height, corner_radius=0, taper_height=0, taper_inset=0,
                        taper_curve="LINEAR"):
@@ -478,17 +512,17 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     Pure function, specific. Build the outer shell for a cross-shaped brick.
 
     Union of two rectangular bars (horizontal and vertical), extruded to height.
-    Taper and corner_radius are NOT supported for cross shapes (would require
-    complex lofting of non-rectangular profiles). Cross shapes always use
-    sharp corners and straight walls.
+    When corner_radius > 0, convex corners are filleted in 2D before extrusion.
+    Concave (reentrant) corners are filleted only if SKIP_CONCAVE is False.
+    Taper is NOT supported for cross shapes.
 
     Args:
         plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
         width_x, width_y (int): Arm widths in studs.
         height (float): Body height.
-        corner_radius (float): Ignored for cross shapes (always 0).
-        taper_height (float): Ignored for cross shapes (always 0).
-        taper_inset (float): Ignored for cross shapes (always 0).
+        corner_radius (float): 2D corner rounding radius. 0 = sharp.
+        taper_height (float): Ignored for cross shapes.
+        taper_inset (float): Ignored for cross shapes.
         taper_curve (str): Ignored for cross shapes.
 
     Returns:
@@ -496,6 +530,7 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
 
     Examples:
         >>> # _build_cross_shell(1, 1, 1, 1, 1, 1, 9.6)  -> + shape
+        >>> # _build_cross_shell(1, 1, 1, 1, 1, 1, 9.6, corner_radius=2.0)
     """
     dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
                                  width_x, width_y)
@@ -508,11 +543,31 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     h_offset_y = (minus_y - plus_y) / 2 * PITCH
     v_offset_x = (minus_x - plus_x) / 2 * PITCH
 
+    cr = _clamp_cr(corner_radius, min(h_w, v_w), min(h_h, v_h)) if corner_radius > 0 else 0
+
+    if cr > 0:
+        # 2D sketch approach: union of two rectangles, fillet selected vertices
+        with BuildPart() as shell:
+            with BuildSketch() as sk:
+                with Locations([Pos(0, h_offset_y)]):
+                    Rectangle(h_w, h_h)
+                with Locations([Pos(v_offset_x, 0)]):
+                    Rectangle(v_w, v_h, mode=Mode.ADD)
+
+                convex, concave = _cross_concave_vertices(sk, v_w, h_h)
+                # Always fillet convex corners
+                if convex:
+                    bd_fillet(convex, radius=cr)
+                # Fillet concave only if SKIP_CONCAVE is False
+                if concave and not SKIP_CONCAVE:
+                    bd_fillet(concave, radius=cr)
+            extrude(amount=height)
+        return shell.part
+
+    # No corner radius: fast Box union
     with BuildPart() as shell:
-        # Horizontal bar
         Pos(0, h_offset_y, 0) * Box(h_w, h_h, height,
             align=(Align.CENTER, Align.CENTER, Align.MIN))
-        # Vertical bar (Mode.ADD = union)
         Pos(v_offset_x, 0, 0) * Box(v_w, v_h, height,
             align=(Align.CENTER, Align.CENTER, Align.MIN))
     return shell.part
@@ -674,7 +729,7 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
 
     if is_cross:
         return _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
-                            cross_width_x, cross_width_y,
+                            cross_width_x, cross_width_y, corner_radius,
                             stud_taper_height, stud_taper_inset, stud_taper_curve)
 
     # ── RECTANGLE mode ──
@@ -742,7 +797,7 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
 
 
 def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
-                 width_x, width_y,
+                 width_x, width_y, corner_radius=0,
                  stud_taper_height=0, stud_taper_inset=0, stud_taper_curve="LINEAR"):
     """
     Pure function, specific. Build a cross-shaped brick.
@@ -752,6 +807,7 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
         clutch (str): "TUBE", "LATTICE", or "NONE".
         plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
         width_x, width_y (int): Arm widths.
+        corner_radius (float): 2D corner rounding radius.
         stud_taper_height, stud_taper_inset (float): Stud taper params.
         stud_taper_curve (str): Stud taper curve type.
 
@@ -767,7 +823,8 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
     fillet_z = cavity_z if clutch == "LATTICE" else 0.0
 
     outer_shell = _build_cross_shell(plus_x, minus_x, plus_y, minus_y,
-                                     width_x, width_y, height)
+                                     width_x, width_y, height,
+                                     corner_radius=corner_radius)
     cavity = _build_cross_cavity(plus_x, minus_x, plus_y, minus_y,
                                  width_x, width_y, cavity_z)
 
