@@ -286,6 +286,117 @@ since it needs bpy callbacks), but it's display-only — not sent to the build w
 - `models/bricks/clara/panel_def.py` — Clara sections (imports shared, no Internals)
 - `models/bricks/clara/parametric.py` — Clara `_build()` + minimal config
 
+## Unified Brick System (PLANNED — replaces separate LEGO/Clara)
+
+### Motivation
+LEGO and Clara share ~80% of their geometry code (shell, studs, fillets, text, slopes).
+The only real difference is the clutch mechanism (tubes vs lattice). Merging them into
+one unified system with a clutch dropdown eliminates code duplication and enables:
+- Cross-shaped (L/T/+) bricks — same code path for any clutch type
+- 4-directional slopes — works on any shape
+- Any feature (corner radius, taper, stud taper) available to any brick, not just Clara
+- LEGO and Clara become presets, not separate codebases
+
+### Clutch Types (dropdown)
+| Type | Description | Internal Geometry |
+|------|-------------|-------------------|
+| **TUBE** | Standard LEGO clutch | Cylindrical anti-stud tubes + ridge rail (1-wide) |
+| **LATTICE** | Clara diagonal clutch | ±45° crisscross struts, diamond openings fit studs |
+| **NONE** | Hollow (no clutch) | Empty cavity, just shell + studs |
+
+### Cross-Shape System (L/T/+ bricks)
+
+**Shape mode dropdown**: RECTANGLE (current, backwards compatible) or CROSS.
+
+**RECTANGLE mode**: `studs_x`, `studs_y` — standard rectangular bricks. Internally
+these are converted to the directional system for the geometry functions.
+
+**CROSS mode parameters**:
+- `studs_plus_x` (int, ≥0): arm length extending in +X from center
+- `studs_plus_y` (int, ≥0): arm length extending in +Y from center
+- `studs_minus_x` (int, ≥0): arm length extending in -X from center
+- `studs_minus_y` (int, ≥0): arm length extending in -Y from center
+- `cross_width_x` (int, ≥1, default 1): width of the vertical (Y-axis) arms in X
+- `cross_width_y` (int, ≥1, default 1): width of the horizontal (X-axis) arms in Y
+- Cross width sliders only visible when CROSS mode is enabled
+
+**Origin**: center of the `cross_width_x × cross_width_y` center block. When all
+directional params are 0, result is a `cross_width_x × cross_width_y` brick at origin
+(1×1 when widths are 1).
+
+**2D footprint** = union of two rectangles:
+- **Horizontal bar**: X extent from `-studs_minus_x * PITCH` to `+(cross_width_x + studs_plus_x) * PITCH`,
+  Y extent = `cross_width_y * PITCH`, centered on Y=0
+- **Vertical bar**: Y extent from `-studs_minus_y * PITCH` to `+(cross_width_y + studs_plus_y) * PITCH`,
+  X extent = `cross_width_x * PITCH`, centered on X=0
+- The center block (`cross_width_x × cross_width_y`) is the overlap region
+
+**Examples**:
+- All zeros, widths=1: 1×1 brick
+- `plus_x=1, plus_y=1, minus=0, widths=1`: 2×2 brick (bottom-left at origin)
+- `plus_x=5, plus_y=5, minus=0, widths=1`: L-shape, 5+5+1=11 unique stud positions
+- `all=3, widths=1`: + (plus/cross) shape
+- `plus_x=5, minus_x=5, plus_y=3, minus_y=0, widths=1`: T-shape
+- `plus_x=3, plus_y=3, widths=2`: L-shape with 2-wide arms
+
+**Geometry construction for cross shapes**:
+1. 2D polygon outline (union of two rects) → extrude → shell
+2. Inset polygon by WALL_THICKNESS → extrude to cavity_z → subtract → cavity
+3. Studs at all grid positions within the cross footprint
+4. Tubes at all valid positions within the footprint (TUBE clutch)
+5. Lattice struts clipped to non-rectangular cavity (LATTICE clutch)
+6. Slope planes cut as needed → fillet → text
+
+### 4-Directional Slopes
+
+Replace single slope (+Y direction) with 4 independent slopes:
+- `slope_plus_x` (int, flat rows): slope descending toward +X
+- `slope_plus_y` (int, flat rows): slope descending toward +Y (current behavior)
+- `slope_minus_x` (int, flat rows): slope descending toward -X
+- `slope_minus_y` (int, flat rows): slope descending toward -Y
+
+Each value = number of flat stud rows before slope begins in that direction.
+0 = no slope in that direction.
+
+**Multiple slopes active simultaneously**: slopes intersect. The brick is cut by
+ALL active slope planes. This enables corner roof pieces (e.g., minus_x=1 + minus_y=1
+creates a hip roof corner).
+
+**`slope_min_z`** (float, default WALL_THICKNESS=1.5): how low the slope descends.
+- Current behavior: slope terminates at WALL_THICKNESS (realistic lip at bottom)
+- `slope_min_z=0`: slope goes all the way to Z=0 (sharp edge)
+- Configurable for different printing/aesthetic needs
+
+**Works on both RECTANGLE and CROSS shapes.** A slope on a cross-arm slopes that arm
+independently. The slope plane applies to the entire brick and intersects with the
+footprint naturally.
+
+### Presets (unified system)
+| Preset | Clutch | Stud Text | Corner Radius | Taper | Stud Height | Notes |
+|--------|--------|-----------|---------------|-------|-------------|-------|
+| LEGO Standard | TUBE | "LEGO" | 0 | off | 1.8 | Classic LEGO dimensions |
+| Clara Mini Brick | LATTICE | "CLARA" | 2.0 | on | 4.0 | 3D-print optimized |
+| Clara Mini Slope | LATTICE | "CLARA" | 2.0 | on | 4.0 | Mini Brick + slope |
+| Hollow Shell | NONE | "" | 0 | off | 1.8 | No clutch, for testing |
+
+### Target File Structure (after refactor)
+```
+models/bricks/
+  common.py             # Shared constants (unchanged)
+  panel_common.py       # Shared panel helpers + anatomy (minor updates)
+  parametric_base.py    # Override application (unchanged)
+  brick_lib.py          # UNIFIED geometry: brick(), slope(), cross shapes
+  parametric.py         # UNIFIED worker: _build() + overrides
+  panel_def.py          # UNIFIED panel sections + presets
+  brick.py              # Default entry point for ./run.sh
+  tests/
+    test_lattice.py     # Lattice geometry tests (moved from clara/tests/)
+    test_cross.py       # NEW: cross-shape geometry tests
+    test_slopes.py      # NEW: 4-directional slope tests
+```
+
+Old directories (`lego/`, `clara/`) deleted after merge is verified.
+
 ## Clara Brick Features
 
 **Brand**: "Clara" (not Lego). All studs have raised "CLARA" text.
