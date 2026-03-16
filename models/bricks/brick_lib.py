@@ -20,9 +20,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from build123d import (
     Box, Circle, Cylinder, Rectangle, RectangleRounded, Pos, Rot, Plane,
-    Align, Keep, Mode, FontStyle,
-    BuildPart, BuildSketch, add, Locations, GridLocations,
-    Text, extrude, loft, split, fillet as bd_fillet,
+    Align, Keep, Mode, FontStyle, Axis,
+    BuildPart, BuildSketch, BuildLine, add, Locations, GridLocations,
+    Line, Polyline, TangentArc, make_face,
+    Text, extrude, loft, revolve, split, fillet as bd_fillet,
 )
 from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
@@ -47,7 +48,7 @@ TUBE_INNER_RADIUS = TUBE_INNER_DIAMETER / 2
 
 # ── Taper helpers ────────────────────────────────────────────────────────────
 
-_CURVED_TAPER_STEPS = 8
+_CURVED_TAPER_STEPS = 4
 
 
 def _taper_profile(t, curve="LINEAR"):
@@ -131,8 +132,8 @@ def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
     Pure function, specific. Build a single stud, optionally tapered at the top.
 
     Origin at center-bottom. Without taper, returns a simple cylinder. With
-    taper, lofts circle profiles from full radius down to (radius - taper_inset)
-    over the taper zone.
+    taper, revolves a 2D XZ profile around Z — exact geometry for both LINEAR
+    (straight slope) and CURVED (quarter-circle via TangentArc) taper modes.
 
     Args:
         radius (float): Stud radius at base.
@@ -146,7 +147,7 @@ def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
 
     Examples:
         >>> # _build_stud(2.4, 1.8)  -> simple cylinder
-        >>> # _build_stud(2.4, 1.8, 0.5, 0.2, "CURVED")  -> tapered stud
+        >>> # _build_stud(2.4, 1.8, 0.5, 0.2, "CURVED")  -> exact quarter-circle taper
     """
     has_taper = taper_height > 0 and taper_inset > 0
     if not has_taper:
@@ -159,46 +160,57 @@ def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
     taper_start_z = total_height - th
     top_radius = max(radius - taper_inset, 0.01)
 
+    # Revolve a 2D profile in the XZ plane around Z axis
     with BuildPart() as stud:
-        with BuildSketch(Plane.XY):
-            Circle(radius)
-        if taper_start_z > 0.01:
-            with BuildSketch(Plane.XY.offset(taper_start_z)):
-                Circle(radius)
-        if taper_curve == "CURVED":
-            for i in range(1, _CURVED_TAPER_STEPS):
-                t = i / _CURVED_TAPER_STEPS
-                z = taper_start_z + th * t
-                r = radius - taper_inset * _taper_profile(t, "CURVED")
-                with BuildSketch(Plane.XY.offset(z)):
-                    Circle(max(r, 0.01))
-        with BuildSketch(Plane.XY.offset(total_height)):
-            Circle(top_radius)
-        loft(ruled=True)
+        with BuildSketch(Plane.XZ):
+            with BuildLine():
+                if taper_start_z > 0.01:
+                    Polyline([(0, 0), (radius, 0), (radius, taper_start_z)])
+                else:
+                    Polyline([(0, 0), (radius, 0)])
+                taper_start = (radius, max(taper_start_z, 0))
+                taper_end = (top_radius, total_height)
+                if taper_curve == "CURVED":
+                    TangentArc(taper_start, taper_end, tangent=(0, 1))
+                else:
+                    Line(taper_start, taper_end)
+                Polyline([taper_end, (0, total_height), (0, 0)])
+            make_face()
+        revolve(axis=Axis.Z)
     return stud.part
 
 
 # ── Clutch builders ──────────────────────────────────────────────────────────
 
-def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z):
+def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z,
+                   clip_rects=None):
     """
     Pure function, specific. Build diagonal lattice struts as a standalone Part.
 
     +/-45 deg crisscross struts forming diamond openings. Each diamond's
     inscribed circle = STUD_DIAMETER for exact stud fit.
 
+    clip_rects overrides the default bounding-box clip. Each rect is
+    (center_x, center_y, width, height). For cross shapes, one rect per arm
+    avoids OCCT 3D intersection bugs on thin geometry. Each arm is clipped
+    independently in 2D and the results are unioned.
+
     Args:
-        studs_x (int): Studs along X.
-        studs_y (int): Studs along Y.
-        inner_x (float): Inner cavity width.
-        inner_y (float): Inner cavity height.
+        studs_x (int): Studs along X (bounding box).
+        studs_y (int): Studs along Y (bounding box).
+        inner_x (float): Inner cavity width (bounding box).
+        inner_y (float): Inner cavity height (bounding box).
         cavity_z (float): Cavity height (extrusion depth).
+        clip_rects (list[tuple] | None): Per-arm clip rects [(cx, cy, w, h), ...].
+            None = single bounding-box rectangle (default, for simple rectangles).
 
     Returns:
         Part: Lattice geometry, origin at (0, 0, 0).
 
     Examples:
         >>> # _build_lattice(2, 4, 12.8, 28.8, 8.6)
+        >>> # _build_lattice(4, 4, 28.8, 28.8, 8.6,
+        >>> #     clip_rects=[(0, -12, 28.8, 4.8), (-12, 0, 4.8, 28.8)])
     """
     strut_thickness = PITCH / math.sqrt(2) - STUD_DIAMETER
     n_struts = studs_x + studs_y
@@ -206,16 +218,49 @@ def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z):
     c_start = -(n_struts - 1) / 2 * PITCH
     c_values = [c_start + i * PITCH for i in range(n_struts)]
 
-    with BuildPart() as lattice:
-        with BuildSketch():
-            for c in c_values:
-                with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
-                    Rectangle(strut_len, strut_thickness)
-                with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
-                    Rectangle(strut_len, strut_thickness)
-            Rectangle(inner_x, inner_y, mode=Mode.INTERSECT)
-        extrude(amount=cavity_z)
-    return lattice.part
+    def _add_struts():
+        """Command, specific. Add lattice strut rectangles to current sketch."""
+        for c in c_values:
+            with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
+                Rectangle(strut_len, strut_thickness)
+            with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
+                Rectangle(strut_len, strut_thickness)
+
+    if clip_rects is None or len(clip_rects) == 1:
+        # Single clip region: standard bounding-box clip
+        cx, cy, cw, ch = clip_rects[0] if clip_rects else (0, 0, inner_x, inner_y)
+        with BuildPart() as lattice:
+            with BuildSketch():
+                _add_struts()
+                with Locations([Pos(cx, cy)]):
+                    Rectangle(cw, ch, mode=Mode.INTERSECT)
+            extrude(amount=cavity_z)
+        return lattice.part
+
+    # Multiple clip regions: build per-arm, union results.
+    # Avoids OCCT 3D intersection bugs with thin lattice vs complex cavity.
+    parts = []
+    for cx, cy, cw, ch in clip_rects:
+        if cw <= 0 or ch <= 0:
+            continue
+        with BuildPart() as arm:
+            with BuildSketch():
+                _add_struts()
+                with Locations([Pos(cx, cy)]):
+                    Rectangle(cw, ch, mode=Mode.INTERSECT)
+            extrude(amount=cavity_z)
+        parts.append(arm.part)
+
+    if not parts:
+        # Fallback: empty lattice
+        with BuildPart() as lattice:
+            Box(0.01, 0.01, 0.01)
+        return lattice.part
+
+    result = parts[0]
+    for p in parts[1:]:
+        result = result + p
+    return result
 
 
 def _build_tubes(studs_x, studs_y, cavity_z):
@@ -274,68 +319,6 @@ def _build_ridge(studs_x, studs_y, cavity_z):
         Pos(0, 0, cavity_z - RIDGE_HEIGHT) * Box(rx, ry, RIDGE_HEIGHT,
             align=(Align.CENTER, Align.CENTER, Align.MIN))
     return rp.part
-
-
-# ── Shell builders ───────────────────────────────────────────────────────────
-
-def _build_outer_shell(outer_x, outer_y, height, corner_radius=0,
-                       taper_height=0, taper_inset=0, taper_curve="LINEAR"):
-    """
-    Pure function, specific. Build the outer shell solid (no cavity yet).
-
-    Three-branch construction: taper → loft, corner_radius → rounded extrude,
-    else → Box (fastest).
-
-    Args:
-        outer_x (float): Outer width.
-        outer_y (float): Outer depth.
-        height (float): Body height.
-        corner_radius (float): 2D corner rounding (mm). 0 = sharp.
-        taper_height (float): Wall taper height (mm). 0 = no taper.
-        taper_inset (float): Wall taper inset (mm). 0 = no taper.
-        taper_curve (str): "LINEAR" or "CURVED".
-
-    Returns:
-        Part: Outer shell solid.
-
-    Examples:
-        >>> # _build_outer_shell(15.6, 31.6, 9.6)  -> sharp box
-        >>> # _build_outer_shell(15.6, 31.6, 9.6, corner_radius=2.0)  -> rounded
-    """
-    cr = _clamp_cr(corner_radius, outer_x, outer_y)
-    has_taper = taper_height > 0 and taper_inset > 0
-    top_x = outer_x - 2 * taper_inset if has_taper else outer_x
-    top_y = outer_y - 2 * taper_inset if has_taper else outer_y
-    top_cr = _clamp_cr(cr, top_x, top_y)
-
-    with BuildPart() as shell:
-        if has_taper:
-            taper_start_z = height - taper_height
-            with BuildSketch(Plane.XY):
-                _rounded_rect(outer_x, outer_y, cr)
-            with BuildSketch(Plane.XY.offset(taper_start_z)):
-                _rounded_rect(outer_x, outer_y, cr)
-            if taper_curve == "CURVED":
-                for i in range(1, _CURVED_TAPER_STEPS):
-                    t = i / _CURVED_TAPER_STEPS
-                    z = taper_start_z + taper_height * t
-                    inset = taper_inset * _taper_profile(t, "CURVED")
-                    w = outer_x - 2 * inset
-                    h_dim = outer_y - 2 * inset
-                    r = _clamp_cr(cr, w, h_dim)
-                    with BuildSketch(Plane.XY.offset(z)):
-                        _rounded_rect(w, h_dim, r)
-            with BuildSketch(Plane.XY.offset(height)):
-                _rounded_rect(top_x, top_y, top_cr)
-            loft(ruled=True)
-        elif cr > 0:
-            with BuildSketch():
-                _rounded_rect(outer_x, outer_y, cr)
-            extrude(amount=height)
-        else:
-            Box(outer_x, outer_y, height,
-                align=(Align.CENTER, Align.CENTER, Align.MIN))
-    return shell.part
 
 
 # ── Cross-shape helpers ──────────────────────────────────────────────────────
@@ -523,6 +506,13 @@ def _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
     Examples:
         >>> # Called inside BuildSketch: _cross_sketch(15.6, 7.6, 7.6, 15.6, 0, 0)
     """
+    # Degenerate rectangle: single bar, use simple rounded rect
+    is_degenerate = (abs(h_w - v_w) < 0.01 and abs(h_h - v_h) < 0.01
+                     and abs(h_offset_y) < 0.01 and abs(v_offset_x) < 0.01)
+    if is_degenerate:
+        _rounded_rect(h_w, h_h, _clamp_cr(cr, h_w, h_h) if cr > 0 else 0)
+        return
+
     with Locations([Pos(0, h_offset_y)]):
         Rectangle(h_w, h_h)
     with Locations([Pos(v_offset_x, 0)]):
@@ -625,13 +615,63 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
             extrude(amount=height)
         return shell.part
 
-    # No corner radius, no taper: fast Box union
+    # No corner radius, no taper: fast Box path
+    is_degenerate = (abs(h_w - v_w) < 0.01 and abs(h_h - v_h) < 0.01
+                     and abs(h_offset_y) < 0.01 and abs(v_offset_x) < 0.01)
     with BuildPart() as shell:
-        Pos(0, h_offset_y, 0) * Box(h_w, h_h, height,
-            align=(Align.CENTER, Align.CENTER, Align.MIN))
-        Pos(v_offset_x, 0, 0) * Box(v_w, v_h, height,
-            align=(Align.CENTER, Align.CENTER, Align.MIN))
+        if is_degenerate:
+            Box(h_w, h_h, height,
+                align=(Align.CENTER, Align.CENTER, Align.MIN))
+        else:
+            Pos(0, h_offset_y, 0) * Box(h_w, h_h, height,
+                align=(Align.CENTER, Align.CENTER, Align.MIN))
+            Pos(v_offset_x, 0, 0) * Box(v_w, v_h, height,
+                align=(Align.CENTER, Align.CENTER, Align.MIN))
     return shell.part
+
+
+def _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
+    """
+    Pure function, specific. Compute inner cavity bar dimensions and offsets
+    for a cross-shaped (or degenerate rectangular) footprint.
+
+    Returns the per-arm inner dimensions used for both the cavity solid and
+    the lattice clip rectangles — single source of truth.
+
+    Args:
+        plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
+        width_x, width_y (int): Arm widths in studs.
+
+    Returns:
+        list[tuple[float, float, float, float]]: List of (cx, cy, w, h) for
+            each cavity bar with positive dimensions. For a pure rectangle,
+            returns a single bar. For crosses, returns two bars.
+
+    Examples:
+        >>> _cross_cavity_bar_dims(0, 0, 0, 0, 2, 4)
+        [(0.0, 0.0, 12.8, 28.8)]
+        >>> len(_cross_cavity_bar_dims(1, 1, 1, 1, 1, 1))
+        2
+    """
+    dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
+                                 width_x, width_y)
+    wt = WALL_THICKNESS
+    h_w = dims["h_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
+    h_h = dims["h_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
+    v_w = dims["v_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
+    v_h = dims["v_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
+    h_offset_y = (minus_y - plus_y) / 2 * PITCH
+    v_offset_x = (minus_x - plus_x) / 2 * PITCH
+
+    bars = []
+    if h_w > 0 and h_h > 0:
+        bars.append((0.0, h_offset_y, h_w, h_h))
+    if v_w > 0 and v_h > 0:
+        bars.append((v_offset_x, 0.0, v_w, v_h))
+    # Deduplicate: degenerate rectangle has h_bar == v_bar
+    if len(bars) == 2 and bars[0] == bars[1]:
+        bars = bars[:1]
+    return bars
 
 
 def _build_cross_cavity(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
@@ -653,25 +693,11 @@ def _build_cross_cavity(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     Examples:
         >>> # _build_cross_cavity(1, 1, 1, 1, 1, 1, 8.6)
     """
-    dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
-                                 width_x, width_y)
-    wt = WALL_THICKNESS
-    h_w = dims["h_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
-    h_h = dims["h_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
-    v_w = dims["v_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
-    v_h = dims["v_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
-
-    h_offset_y = (minus_y - plus_y) / 2 * PITCH
-    v_offset_x = (minus_x - plus_x) / 2 * PITCH
-
-    # Only add bars with positive dimensions
-    parts = []
+    bars = _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y,
+                                  width_x, width_y)
     with BuildPart() as cav:
-        if h_w > 0 and h_h > 0:
-            Pos(0, h_offset_y, 0) * Box(h_w, h_h, cavity_z,
-                align=(Align.CENTER, Align.CENTER, Align.MIN))
-        if v_w > 0 and v_h > 0:
-            Pos(v_offset_x, 0, 0) * Box(v_w, v_h, cavity_z,
+        for cx, cy, w, h in bars:
+            Pos(cx, cy, 0) * Box(w, h, cavity_z,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
     return cav.part
 
@@ -747,6 +773,112 @@ def _slope_planes(direction, outer_x, outer_y, height, flat_rows, slope_min_z):
     return cut_plane, cavity_cut_plane
 
 
+# ── Shared assembly helpers ──────────────────────────────────────────────────
+
+def _normalize_cross(shape_mode, studs_x, studs_y,
+                     plus_x, minus_x, plus_y, minus_y,
+                     cross_width_x, cross_width_y):
+    """
+    Pure function, specific. Normalize RECTANGLE params to degenerate cross params.
+
+    Returns:
+        tuple: (plus_x, minus_x, plus_y, minus_y, cross_width_x, cross_width_y).
+
+    Examples:
+        >>> _normalize_cross("RECTANGLE", 2, 4, 0, 0, 0, 0, 1, 1)
+        (0, 0, 0, 0, 2, 4)
+        >>> _normalize_cross("CROSS", 0, 0, 3, 0, 3, 0, 1, 1)
+        (3, 0, 3, 0, 1, 1)
+    """
+    if shape_mode != "CROSS":
+        return 0, 0, 0, 0, studs_x, studs_y
+    return plus_x, minus_x, plus_y, minus_y, cross_width_x, cross_width_y
+
+
+def _place_studs(positions, height, stud_taper_height=0, stud_taper_inset=0,
+                 stud_taper_curve="LINEAR"):
+    """
+    Command, specific. Add studs at the given (x, y) positions.
+    Must be called inside a BuildPart context.
+
+    Args:
+        positions (list[tuple]): (x, y) positions for stud centers.
+        height (float): Brick body height (studs placed on top).
+        stud_taper_height (float): Stud taper height. 0 = no taper.
+        stud_taper_inset (float): Stud taper inset. 0 = no taper.
+        stud_taper_curve (str): "LINEAR" or "CURVED".
+
+    Examples:
+        >>> # Inside BuildPart: _place_studs([(0, 0), (8, 0)], 9.6)
+    """
+    if not ENABLE_STUDS or not positions:
+        return
+    has_taper = stud_taper_height > 0 and stud_taper_inset > 0
+    if has_taper:
+        stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
+                           stud_taper_height, stud_taper_inset, stud_taper_curve)
+        with Locations([Pos(x, y, height) for x, y in positions]):
+            add(stud)
+    else:
+        with Locations([Pos(x, y, height) for x, y in positions]):
+            Cylinder(STUD_RADIUS, STUD_HEIGHT,
+                     align=(Align.CENTER, Align.CENTER, Align.MIN))
+
+
+def _try_fillet(result, fillet_z):
+    """
+    Command, specific. Apply fillet/chamfer to part. Returns original on OCCT
+    failure (known limitation for cross shapes with edges too small for filleter).
+
+    Args:
+        result (Part): Part to fillet.
+        fillet_z (float): Z threshold — only fillet edges above this height.
+
+    Returns:
+        Part: Filleted part, or original if OCCT rejects.
+
+    Examples:
+        >>> # _try_fillet(part, cavity_z)  -> fillet edges above cavity
+    """
+    if not ENABLE_FILLET:
+        return result
+    try:
+        return bevel_above_z(result, FILLET_RADIUS, z_threshold=fillet_z,
+                             style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
+                             skip_concave=SKIP_CONCAVE)
+    except ValueError:
+        return result
+
+
+def _apply_text(result, positions, height):
+    """
+    Command, specific. Add raised text to stud tops.
+
+    Args:
+        result (Part): Brick part to add text onto.
+        positions (list[tuple]): (x, y) stud positions.
+        height (float): Brick body height.
+
+    Returns:
+        Part: Part with text, or original if text disabled or no positions.
+
+    Examples:
+        >>> # _apply_text(part, [(0, 0)], 9.6)
+    """
+    if not ENABLE_TEXT or not ENABLE_STUDS or not positions:
+        return result
+    with BuildPart() as final:
+        add(result)
+        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
+            with Locations([Pos(x, y) for x, y in positions]):
+                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
+                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
+                     rotation=STUD_TEXT_ROTATION,
+                     align=(Align.CENTER, Align.CENTER))
+        extrude(amount=STUD_TEXT_HEIGHT)
+    return final.part
+
+
 # ── Main geometry functions ──────────────────────────────────────────────────
 
 def brick(studs_x, studs_y, height=BRICK_HEIGHT,
@@ -760,7 +892,8 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
     """
     Pure function, specific. Create a brick with configurable clutch and shape.
 
-    Shell → clutch internals → studs → fillet → text.
+    Rectangle is a degenerate cross (all arms=0, widths=studs). One code path
+    handles both shapes: shell → cavity → clutch → studs → fillet → text.
 
     Args:
         studs_x (int): Studs along X (RECTANGLE mode only).
@@ -788,122 +921,32 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
         >>> # brick(2, 4, corner_radius=2.0) -> rounded corners
         >>> # brick(0, 0, shape_mode="CROSS", plus_x=3, plus_y=3) -> L-shape
     """
-    is_cross = shape_mode == "CROSS"
+    # Normalize: rectangle is a degenerate cross
+    plus_x, minus_x, plus_y, minus_y, cross_width_x, cross_width_y = \
+        _normalize_cross(shape_mode, studs_x, studs_y,
+                         plus_x, minus_x, plus_y, minus_y,
+                         cross_width_x, cross_width_y)
 
-    if is_cross:
-        return _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
-                            cross_width_x, cross_width_y, corner_radius,
-                            cr_skip_concave,
-                            taper_height, taper_inset, taper_curve,
-                            stud_taper_height, stud_taper_inset, stud_taper_curve)
-
-    # ── RECTANGLE mode ──
-    outer_x = studs_x * PITCH - 2 * CLEARANCE
-    outer_y = studs_y * PITCH - 2 * CLEARANCE
-    inner_x = outer_x - 2 * WALL_THICKNESS
-    inner_y = outer_y - 2 * WALL_THICKNESS
-    cavity_z = height - FLOOR_THICKNESS
-
-    # Fillet Z threshold: LATTICE edges too thin for OCCT → fillet above cavity only
-    fillet_z = cavity_z if clutch == "LATTICE" else 0.0
-
-    with BuildPart() as bp:
-        # Outer shell
-        add(_build_outer_shell(outer_x, outer_y, height,
-                               corner_radius, taper_height, taper_inset, taper_curve))
-        # Cavity
-        Box(inner_x, inner_y, cavity_z,
-            align=(Align.CENTER, Align.CENTER, Align.MIN), mode=Mode.SUBTRACT)
-
-        # Clutch internals
-        if clutch == "TUBE":
-            tubes = _build_tubes(studs_x, studs_y, cavity_z)
-            if tubes:
-                add(tubes)
-            ridge = _build_ridge(studs_x, studs_y, cavity_z)
-            if ridge:
-                add(ridge)
-        elif clutch == "LATTICE":
-            add(_build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z))
-
-        # Studs
-        if ENABLE_STUDS:
-            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-            if has_stud_taper:
-                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                                   stud_taper_height, stud_taper_inset, stud_taper_curve)
-                with Locations([Pos(0, 0, height)]):
-                    with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                        add(stud)
-            else:
-                with Locations([Pos(0, 0, height)]):
-                    with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                        Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                                 align=(Align.CENTER, Align.CENTER, Align.MIN))
-
-    result = bp.part
-    if ENABLE_FILLET:
-        result = bevel_above_z(result, FILLET_RADIUS, z_threshold=fillet_z,
-                               style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
-                               skip_concave=SKIP_CONCAVE)
-
-    if not ENABLE_TEXT or not ENABLE_STUDS:
-        return result
-
-    with BuildPart() as final:
-        add(result)
-        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
-            with GridLocations(PITCH, PITCH, studs_x, studs_y):
-                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
-                     rotation=STUD_TEXT_ROTATION,
-                     align=(Align.CENTER, Align.CENTER))
-        extrude(amount=STUD_TEXT_HEIGHT)
-    return final.part
-
-
-def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
-                 width_x, width_y, corner_radius=0, cr_skip_concave=True,
-                 taper_height=0, taper_inset=0, taper_curve="LINEAR",
-                 stud_taper_height=0, stud_taper_inset=0, stud_taper_curve="LINEAR"):
-    """
-    Pure function, specific. Build a cross-shaped brick.
-
-    Args:
-        height (float): Body height.
-        clutch (str): "TUBE", "LATTICE", or "NONE".
-        plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
-        width_x, width_y (int): Arm widths.
-        corner_radius (float): 2D corner rounding radius.
-        cr_skip_concave (bool): Skip concave corners in corner radius. Default True.
-        taper_height, taper_inset (float): Wall taper params.
-        taper_curve (str): Wall taper curve type.
-        stud_taper_height, stud_taper_inset (float): Stud taper params.
-        stud_taper_curve (str): Stud taper curve type.
-
-    Returns:
-        Part: Complete cross-shaped brick.
-
-    Examples:
-        >>> # _brick_cross(9.6, "LATTICE", 3, 0, 3, 0, 1, 1)  -> L-shape
-    """
     dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
-                                 width_x, width_y)
+                                 cross_width_x, cross_width_y)
+    sx, sy = dims["total_x"], dims["total_y"]
     cavity_z = height - FLOOR_THICKNESS
     fillet_z = cavity_z if clutch == "LATTICE" else 0.0
 
+    # Shell + cavity + positions — one source of truth
     outer_shell = _build_cross_shell(plus_x, minus_x, plus_y, minus_y,
-                                     width_x, width_y, height,
+                                     cross_width_x, cross_width_y, height,
                                      corner_radius=corner_radius,
                                      cr_skip_concave=cr_skip_concave,
                                      taper_height=taper_height,
                                      taper_inset=taper_inset,
                                      taper_curve=taper_curve)
     cavity = _build_cross_cavity(plus_x, minus_x, plus_y, minus_y,
-                                 width_x, width_y, cavity_z)
-
+                                 cross_width_x, cross_width_y, cavity_z)
+    cavity_bars = _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y,
+                                         cross_width_x, cross_width_y)
     stud_positions = _cross_stud_positions(plus_x, minus_x, plus_y, minus_y,
-                                           width_x, width_y)
+                                           cross_width_x, cross_width_y)
 
     with BuildPart() as bp:
         add(outer_shell)
@@ -912,7 +955,7 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
         # Clutch internals
         if clutch == "TUBE":
             tube_positions = _cross_tube_positions(plus_x, minus_x, plus_y, minus_y,
-                                                   width_x, width_y)
+                                                   cross_width_x, cross_width_y)
             if tube_positions:
                 with BuildPart() as tb:
                     with BuildSketch():
@@ -921,52 +964,23 @@ def _brick_cross(height, clutch, plus_x, minus_x, plus_y, minus_y,
                             Circle(TUBE_INNER_RADIUS, mode=Mode.SUBTRACT)
                     extrude(amount=cavity_z)
                 add(tb.part)
+            # Ridge for 1-wide arms (only meaningful for degenerate rectangles)
+            ridge = _build_ridge(sx, sy, cavity_z)
+            if ridge:
+                add(ridge)
         elif clutch == "LATTICE":
-            # Build lattice using equivalent studs_x/studs_y from total dims
-            # Lattice clipped to cross-shaped cavity
-            sx, sy = dims["total_x"], dims["total_y"]
             inner_x = sx * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
             inner_y = sy * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
             if inner_x > 0 and inner_y > 0:
-                lattice = _build_lattice(sx, sy, inner_x, inner_y, cavity_z)
-                clipped = lattice & cavity
-                add(clipped)
+                add(_build_lattice(sx, sy, inner_x, inner_y, cavity_z,
+                                   clip_rects=cavity_bars))
 
         # Studs
-        if ENABLE_STUDS:
-            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-            if has_stud_taper:
-                stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                                   stud_taper_height, stud_taper_inset, stud_taper_curve)
-                with Locations([Pos(x, y, height) for x, y in stud_positions]):
-                    add(stud)
-            else:
-                with Locations([Pos(x, y, height) for x, y in stud_positions]):
-                    Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                             align=(Align.CENTER, Align.CENTER, Align.MIN))
+        _place_studs(stud_positions, height,
+                     stud_taper_height, stud_taper_inset, stud_taper_curve)
 
-    result = bp.part
-    if ENABLE_FILLET:
-        try:
-            result = bevel_above_z(result, FILLET_RADIUS, z_threshold=fillet_z,
-                                   style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
-                                   skip_concave=SKIP_CONCAVE)
-        except ValueError:
-            pass  # Cross shapes may have edges too small for OCCT filleter
-
-    if not ENABLE_TEXT or not ENABLE_STUDS:
-        return result
-
-    with BuildPart() as final:
-        add(result)
-        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
-            with Locations([Pos(x, y) for x, y in stud_positions]):
-                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
-                     rotation=STUD_TEXT_ROTATION,
-                     align=(Align.CENTER, Align.CENTER))
-        extrude(amount=STUD_TEXT_HEIGHT)
-    return final.part
+    result = _try_fillet(bp.part, fillet_z)
+    return _apply_text(result, stud_positions, height)
 
 
 def slope(studs_x, studs_y, height=BRICK_HEIGHT,
@@ -983,11 +997,14 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
     Pure function, specific. Create a slope brick with configurable clutch,
     shape, and 4-directional slopes.
 
+    Rectangle is a degenerate cross (same normalization as brick()). One code
+    path handles both shapes.
+
     Build order (critical — prevents exposed cavity):
         1. Outer shell → split by ALL slope planes
         2. Cavity → split by ALL offset slope planes
         3. Shell = sloped_outer - sloped_cavity
-        4. Clutch internals → clip to sloped_cavity via &
+        4. Clutch internals → per-arm 2D clip, then 3D slope clip
         5. Studs on flat portion only
         6. Fillet → text
 
@@ -1013,29 +1030,28 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
         >>> # slope(2, 4, slope_plus_y=3) -> 2x4 slope, 3 sloped rows in +Y
         >>> # slope(2, 4, slope_plus_y=3, slope_minus_x=3) -> corner roof
     """
-    is_cross = shape_mode == "CROSS"
+    # Normalize: rectangle is a degenerate cross
+    plus_x, minus_x, plus_y, minus_y, cross_width_x, cross_width_y = \
+        _normalize_cross(shape_mode, studs_x, studs_y,
+                         plus_x, minus_x, plus_y, minus_y,
+                         cross_width_x, cross_width_y)
 
-    # Determine total rows per axis for sloped→flat conversion
-    if is_cross:
-        dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
-                                     cross_width_x, cross_width_y)
-        rows_x, rows_y = dims["total_x"], dims["total_y"]
-    else:
-        rows_x, rows_y = studs_x, studs_y
+    dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
+                                 cross_width_x, cross_width_y)
+    sx, sy = dims["total_x"], dims["total_y"]
 
     # Collect active slopes, converting sloped_rows → flat_rows
     active_slopes = []
     if slope_plus_y > 0:
-        active_slopes.append(("+Y", rows_y - slope_plus_y))
+        active_slopes.append(("+Y", sy - slope_plus_y))
     if slope_minus_y > 0:
-        active_slopes.append(("-Y", rows_y - slope_minus_y))
+        active_slopes.append(("-Y", sy - slope_minus_y))
     if slope_plus_x > 0:
-        active_slopes.append(("+X", rows_x - slope_plus_x))
+        active_slopes.append(("+X", sx - slope_plus_x))
     if slope_minus_x > 0:
-        active_slopes.append(("-X", rows_x - slope_minus_x))
+        active_slopes.append(("-X", sx - slope_minus_x))
 
     if not active_slopes:
-        # No slopes active — just build a regular brick
         return brick(studs_x, studs_y, height, clutch,
                      corner_radius, cr_skip_concave,
                      taper_height, taper_inset, taper_curve,
@@ -1043,208 +1059,14 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
                      shape_mode, plus_x, minus_x, plus_y, minus_y,
                      cross_width_x, cross_width_y)
 
-    if is_cross:
-        return _slope_cross(height, clutch, active_slopes, slope_min_z,
-                            plus_x, minus_x, plus_y, minus_y,
-                            cross_width_x, cross_width_y,
-                            corner_radius=corner_radius,
-                            cr_skip_concave=cr_skip_concave,
-                            taper_height=taper_height,
-                            taper_inset=taper_inset,
-                            taper_curve=taper_curve,
-                            stud_taper_height=stud_taper_height,
-                            stud_taper_inset=stud_taper_inset,
-                            stud_taper_curve=stud_taper_curve)
-
-    # ── RECTANGLE slope ──
-    outer_x = studs_x * PITCH - 2 * CLEARANCE
-    outer_y = studs_y * PITCH - 2 * CLEARANCE
-    inner_x = outer_x - 2 * WALL_THICKNESS
-    inner_y = outer_y - 2 * WALL_THICKNESS
     cavity_z = height - FLOOR_THICKNESS
     fillet_z = cavity_z if clutch == "LATTICE" else 0.0
+
+    # Bounding box outer dimensions for slope plane computation
+    bbox_x = sx * PITCH - 2 * CLEARANCE
+    bbox_y = sy * PITCH - 2 * CLEARANCE
 
     # Compute all slope planes
-    cut_planes = []
-    cavity_cut_planes = []
-    for direction, flat_rows in active_slopes:
-        cp, ccp = _slope_planes(direction, outer_x, outer_y, height,
-                                flat_rows, slope_min_z)
-        cut_planes.append(cp)
-        cavity_cut_planes.append(ccp)
-
-    # Build and cut outer shell
-    outer = _build_outer_shell(outer_x, outer_y, height,
-                               corner_radius, taper_height, taper_inset, taper_curve)
-    sloped_outer = outer
-    for cp in cut_planes:
-        sloped_outer = split(sloped_outer, bisect_by=cp, keep=Keep.BOTTOM)
-
-    # Build and cut cavity
-    cavity = Box(inner_x, inner_y, cavity_z,
-                 align=(Align.CENTER, Align.CENTER, Align.MIN))
-    sloped_cavity = cavity
-    for ccp in cavity_cut_planes:
-        sloped_cavity = split(sloped_cavity, bisect_by=ccp, keep=Keep.BOTTOM)
-
-    shell = sloped_outer - sloped_cavity
-
-    # Clutch internals clipped to sloped cavity
-    clipped_clutch = None
-    if clutch == "TUBE":
-        tubes = _build_tubes(studs_x, studs_y, cavity_z)
-        if tubes:
-            clipped_clutch = tubes & sloped_cavity
-    elif clutch == "LATTICE":
-        lattice = _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z)
-        clipped_clutch = lattice & sloped_cavity
-
-    # Determine flat stud positions
-    flat_xy = _flat_stud_positions_rect(studs_x, studs_y, outer_x, outer_y,
-                                        height, active_slopes, slope_min_z)
-
-    # Assemble
-    with BuildPart() as bp:
-        add(shell)
-        if clipped_clutch:
-            add(clipped_clutch)
-        if clutch == "TUBE":
-            ridge = _build_ridge(studs_x, studs_y, cavity_z)
-            if ridge:
-                add(ridge)
-
-        # Studs on flat portion
-        if ENABLE_STUDS:
-            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-            if flat_xy:
-                if has_stud_taper:
-                    stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                                       stud_taper_height, stud_taper_inset,
-                                       stud_taper_curve)
-                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                        add(stud)
-                else:
-                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                        Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                                 align=(Align.CENTER, Align.CENTER, Align.MIN))
-
-    result = bp.part
-    if ENABLE_FILLET:
-        try:
-            result = bevel_above_z(result, FILLET_RADIUS, z_threshold=fillet_z,
-                                   style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
-                                   skip_concave=SKIP_CONCAVE)
-        except ValueError:
-            pass  # Fillet failure on slopes is a known OCCT limitation
-
-    if not ENABLE_TEXT or not ENABLE_STUDS or not flat_xy:
-        return result
-
-    with BuildPart() as final:
-        add(result)
-        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
-            with Locations([Pos(x, y) for x, y in flat_xy]):
-                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
-                     rotation=STUD_TEXT_ROTATION,
-                     align=(Align.CENTER, Align.CENTER))
-        extrude(amount=STUD_TEXT_HEIGHT)
-    return final.part
-
-
-def _flat_stud_positions_rect(studs_x, studs_y, outer_x, outer_y,
-                              height, active_slopes, slope_min_z):
-    """
-    Pure function, specific. Compute which stud positions are on the flat deck
-    for a rectangular slope brick with multiple active slopes.
-
-    A stud is flat if it's on the non-sloped side of every active slope's hinge.
-
-    Args:
-        studs_x, studs_y (int): Stud counts.
-        outer_x, outer_y (float): Outer dimensions.
-        height (float): Brick height.
-        active_slopes (list[tuple]): List of (direction, flat_rows) tuples.
-        slope_min_z (float): Where slopes terminate.
-
-    Returns:
-        list[tuple[float, float]]: (x, y) positions for flat studs.
-
-    Examples:
-        >>> # _flat_stud_positions_rect(2, 4, 15.6, 31.6, 9.6, [("+Y", 1)], 1.5)
-    """
-    half_x = outer_x / 2
-    half_y = outer_y / 2
-
-    # Generate all stud positions
-    all_xy = [((i - (studs_x - 1) / 2) * PITCH,
-               (j - (studs_y - 1) / 2) * PITCH)
-              for i in range(studs_x) for j in range(studs_y)]
-
-    flat = []
-    for x, y in all_xy:
-        is_flat = True
-        for direction, flat_rows in active_slopes:
-            if direction == "+Y":
-                hinge_y = -half_y + flat_rows * PITCH
-                if y > hinge_y - PITCH / 2 + 0.01:
-                    is_flat = False
-            elif direction == "-Y":
-                hinge_y = half_y - flat_rows * PITCH
-                if y < hinge_y + PITCH / 2 - 0.01:
-                    is_flat = False
-            elif direction == "+X":
-                hinge_x = -half_x + flat_rows * PITCH
-                if x > hinge_x - PITCH / 2 + 0.01:
-                    is_flat = False
-            elif direction == "-X":
-                hinge_x = half_x - flat_rows * PITCH
-                if x < hinge_x + PITCH / 2 - 0.01:
-                    is_flat = False
-        if is_flat:
-            flat.append((x, y))
-    return flat
-
-
-def _slope_cross(height, clutch, active_slopes, slope_min_z,
-                 plus_x, minus_x, plus_y, minus_y,
-                 width_x, width_y,
-                 corner_radius=0, cr_skip_concave=True,
-                 taper_height=0, taper_inset=0, taper_curve="LINEAR",
-                 stud_taper_height=0, stud_taper_inset=0, stud_taper_curve="LINEAR"):
-    """
-    Pure function, specific. Build a cross-shaped slope brick.
-
-    Args:
-        height (float): Body height.
-        clutch (str): Clutch type.
-        active_slopes (list[tuple]): List of (direction, flat_rows) tuples.
-        slope_min_z (float): Where slopes terminate.
-        plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
-        width_x, width_y (int): Arm widths.
-        corner_radius (float): 2D corner rounding radius.
-        cr_skip_concave (bool): Skip concave corners in corner radius.
-        taper_height, taper_inset (float): Wall taper params.
-        taper_curve (str): Wall taper curve type.
-        stud_taper_height, stud_taper_inset (float): Stud taper params.
-        stud_taper_curve (str): Stud taper curve type.
-
-    Returns:
-        Part: Complete cross-shaped slope brick.
-
-    Examples:
-        >>> # _slope_cross(9.6, "LATTICE", [("+Y", 1)], 1.5, 3, 0, 3, 0, 1, 1)
-    """
-    dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
-                                 width_x, width_y)
-    cavity_z = height - FLOOR_THICKNESS
-    fillet_z = cavity_z if clutch == "LATTICE" else 0.0
-
-    # Use bounding box dimensions for slope planes
-    bbox_x = dims["total_x"] * PITCH - 2 * CLEARANCE
-    bbox_y = dims["total_y"] * PITCH - 2 * CLEARANCE
-
-    # Compute slope planes using bounding box
     cut_planes = []
     cavity_cut_planes = []
     for direction, flat_rows in active_slopes:
@@ -1255,7 +1077,7 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
 
     # Build and cut outer shell
     outer = _build_cross_shell(plus_x, minus_x, plus_y, minus_y,
-                               width_x, width_y, height,
+                               cross_width_x, cross_width_y, height,
                                corner_radius=corner_radius,
                                cr_skip_concave=cr_skip_concave,
                                taper_height=taper_height,
@@ -1267,18 +1089,20 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
 
     # Build and cut cavity
     cavity = _build_cross_cavity(plus_x, minus_x, plus_y, minus_y,
-                                 width_x, width_y, cavity_z)
+                                 cross_width_x, cross_width_y, cavity_z)
     sloped_cavity = cavity
     for ccp in cavity_cut_planes:
         sloped_cavity = split(sloped_cavity, bisect_by=ccp, keep=Keep.BOTTOM)
 
     shell = sloped_outer - sloped_cavity
 
-    # Clutch internals clipped to sloped cavity
+    # Clutch internals — per-arm 2D clip, then 3D slope clip
+    cavity_bars = _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y,
+                                         cross_width_x, cross_width_y)
     clipped_clutch = None
     if clutch == "TUBE":
         tube_positions = _cross_tube_positions(plus_x, minus_x, plus_y, minus_y,
-                                               width_x, width_y)
+                                               cross_width_x, cross_width_y)
         if tube_positions:
             with BuildPart() as tb:
                 with BuildSketch():
@@ -1288,84 +1112,57 @@ def _slope_cross(height, clutch, active_slopes, slope_min_z,
                 extrude(amount=cavity_z)
             clipped_clutch = tb.part & sloped_cavity
     elif clutch == "LATTICE":
-        sx, sy = dims["total_x"], dims["total_y"]
         inner_x = sx * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
         inner_y = sy * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
         if inner_x > 0 and inner_y > 0:
-            lattice = _build_lattice(sx, sy, inner_x, inner_y, cavity_z)
-            clipped_lattice = lattice & cavity  # clip to cross-shaped cavity first
-            clipped_clutch = clipped_lattice & sloped_cavity  # then clip to slope
+            lattice = _build_lattice(sx, sy, inner_x, inner_y, cavity_z,
+                                     clip_rects=cavity_bars)
+            clipped_clutch = lattice & sloped_cavity
 
-    # Determine flat stud positions
+    # Flat stud positions (all positions filtered by slope hinges)
     all_stud_xy = _cross_stud_positions(plus_x, minus_x, plus_y, minus_y,
-                                        width_x, width_y)
-    # Filter to flat positions only
-    flat_xy = _filter_flat_studs_cross(all_stud_xy, bbox_x, bbox_y, height,
-                                       active_slopes, slope_min_z)
+                                        cross_width_x, cross_width_y)
+    flat_xy = _filter_flat_studs(all_stud_xy, bbox_x, bbox_y, active_slopes)
 
+    # Assemble
     with BuildPart() as bp:
         add(shell)
         if clipped_clutch:
             add(clipped_clutch)
+        if clutch == "TUBE":
+            ridge = _build_ridge(sx, sy, cavity_z)
+            if ridge:
+                add(ridge & sloped_cavity)
 
-        if ENABLE_STUDS:
-            has_stud_taper = stud_taper_height > 0 and stud_taper_inset > 0
-            if flat_xy:
-                if has_stud_taper:
-                    stud = _build_stud(STUD_RADIUS, STUD_HEIGHT,
-                                       stud_taper_height, stud_taper_inset,
-                                       stud_taper_curve)
-                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                        add(stud)
-                else:
-                    with Locations([Pos(x, y, height) for x, y in flat_xy]):
-                        Cylinder(STUD_RADIUS, STUD_HEIGHT,
-                                 align=(Align.CENTER, Align.CENTER, Align.MIN))
+        _place_studs(flat_xy, height,
+                     stud_taper_height, stud_taper_inset, stud_taper_curve)
 
-    result = bp.part
-    if ENABLE_FILLET:
-        try:
-            result = bevel_above_z(result, FILLET_RADIUS, z_threshold=fillet_z,
-                                   style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
-                                   skip_concave=SKIP_CONCAVE)
-        except ValueError:
-            pass
-
-    if not ENABLE_TEXT or not ENABLE_STUDS or not flat_xy:
-        return result
-
-    with BuildPart() as final:
-        add(result)
-        with BuildSketch(Plane.XY.offset(height + STUD_HEIGHT)):
-            with Locations([Pos(x, y) for x, y in flat_xy]):
-                Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
-                     font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
-                     rotation=STUD_TEXT_ROTATION,
-                     align=(Align.CENTER, Align.CENTER))
-        extrude(amount=STUD_TEXT_HEIGHT)
-    return final.part
+    result = _try_fillet(bp.part, fillet_z)
+    return _apply_text(result, flat_xy, height)
 
 
-def _filter_flat_studs_cross(stud_positions, bbox_x, bbox_y, height,
-                             active_slopes, slope_min_z):
+def _filter_flat_studs(stud_positions, bbox_x, bbox_y, active_slopes):
     """
-    Pure function, specific. Filter stud positions to only those on the flat
-    deck of a sloped cross-shaped brick.
+    Pure function, specific. Filter stud positions to those on the flat deck
+    of a sloped brick with multiple active slopes.
 
-    Uses the same hinge-based logic as _flat_stud_positions_rect.
+    A stud is flat if it's on the non-sloped side of every active slope's hinge.
+    Works for both rectangle and cross shapes — stud positions are pre-computed
+    by _cross_stud_positions.
 
     Args:
         stud_positions (list[tuple]): All (x, y) stud positions.
-        bbox_x, bbox_y (float): Bounding box outer dimensions.
-        height (float): Brick height.
+        bbox_x (float): Bounding box outer width.
+        bbox_y (float): Bounding box outer depth.
         active_slopes (list[tuple]): List of (direction, flat_rows) tuples.
-        slope_min_z (float): Where slopes terminate.
 
     Returns:
         list[tuple[float, float]]: Flat stud positions.
 
     Examples:
-        >>> # _filter_flat_studs_cross([(0,0)], 15.6, 31.6, 9.6, [("+Y", 1)], 1.5)
+        >>> _filter_flat_studs([(0, -12), (0, -4), (0, 4), (0, 12)],
+        ...                    15.6, 31.6, [("+Y", 1)])
+        [(0, -12), (0, -4)]
     """
     half_x = bbox_x / 2
     half_y = bbox_y / 2
@@ -1393,3 +1190,5 @@ def _filter_flat_studs_cross(stud_positions, bbox_x, bbox_y, height,
         if is_flat:
             flat.append((x, y))
     return flat
+
+

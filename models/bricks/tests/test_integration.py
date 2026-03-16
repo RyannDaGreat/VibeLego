@@ -96,6 +96,28 @@ CONFIGS = [
 
     # No studs
     ("No studs", {**_NO_CLARA, "studs_x": 2, "studs_y": 4, "ENABLE_STUDS": False}),
+
+    # Asymmetric cross shapes — regression test for lattice leaking outside L-shape.
+    # The OCCT 3D boolean intersection (lattice & cavity) fails for thin geometry
+    # against complex L-shaped cavities. Fix: per-arm 2D clipping via clip_rects.
+    ("Asym L lattice", {"shape_mode": "CROSS",
+                         "studs_plus_x": 3, "studs_minus_x": 0,
+                         "studs_plus_y": 3, "studs_minus_y": 0,
+                         "cross_width_x": 1, "cross_width_y": 1}),
+    ("Asym L taper", {"shape_mode": "CROSS",
+                       "studs_plus_x": 3, "studs_minus_x": 0,
+                       "studs_plus_y": 3, "studs_minus_y": 0,
+                       "cross_width_x": 1, "cross_width_y": 1,
+                       "taper_height": 2.0, "taper_inset": 0.3}),
+    ("Asym T lattice", {"shape_mode": "CROSS",
+                         "studs_plus_x": 3, "studs_minus_x": 3,
+                         "studs_plus_y": 3, "studs_minus_y": 0,
+                         "cross_width_x": 1, "cross_width_y": 1}),
+    ("Asym L slope", {**_NO_CLARA, "shape_mode": "CROSS",
+                       "studs_plus_x": 3, "studs_minus_x": 0,
+                       "studs_plus_y": 3, "studs_minus_y": 0,
+                       "cross_width_x": 1, "cross_width_y": 1,
+                       "enable_slope": True, "slope_plus_y": 2}),
 ]
 
 

@@ -1,91 +1,117 @@
-"""Full integration test through unified parametric worker."""
-import os
-import sys
-import tempfile
+"""Test: per-arm lattice build with 2D clipping, then union."""
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "models", "bricks"))
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(script_dir, "models", "bricks"))
+from build123d import (
+    Box, Rectangle, Pos, Rot, Align, Mode,
+    BuildPart, BuildSketch, extrude, Locations,
+)
+import brick_lib
+from common import PITCH, CLEARANCE, WALL_THICKNESS, FLOOR_THICKNESS, BRICK_HEIGHT
+import math
 
-stl = os.path.join(tempfile.gettempdir(), "_integration_test.stl")
+plus_x, minus_x, plus_y, minus_y = 3, 0, 3, 0
+width_x, width_y = 1, 1
+height = BRICK_HEIGHT
+cavity_z = height - FLOOR_THICKNESS
 
-configs = [
-    # Backwards compat: Clara-equivalent configs
-    ("Clara 2x4", {"studs_x": 2, "studs_y": 4}),
-    ("Clara 2x4 chamfer", {"studs_x": 2, "studs_y": 4, "EDGE_STYLE": "CHAMFER"}),
-    ("Clara slope", {"studs_x": 2, "studs_y": 4, "enable_slope": True, "slope_plus_y": 3}),
-    ("Clara skip_concave", {"studs_x": 2, "studs_y": 4, "SKIP_CONCAVE": True}),
-    ("Clara corner_radius", {"studs_x": 2, "studs_y": 4, "enable_corner_radius": True, "corner_radius": 2.0}),
-    ("Clara taper", {"studs_x": 2, "studs_y": 4, "taper_height": 2.0, "taper_inset": 0.3}),
+dims = brick_lib._cross_footprint_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y)
+sx, sy = dims["total_x"], dims["total_y"]
+inner_x = sx * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
+inner_y = sy * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
+wt = WALL_THICKNESS
 
-    # Backwards compat: LEGO-equivalent configs
-    ("LEGO 2x4", {"studs_x": 2, "studs_y": 4, "clutch_type": "TUBE",
-                   "STUD_TEXT": "LEGO", "STUD_HEIGHT": 1.8,
-                   "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-    ("LEGO 2x2 plate", {"studs_x": 2, "studs_y": 2, "clutch_type": "TUBE",
-                          "BRICK_HEIGHT": 3.2,
-                          "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-    ("LEGO slope", {"studs_x": 2, "studs_y": 4, "clutch_type": "TUBE",
-                     "enable_slope": True, "slope_plus_y": 3,
-                     "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-    ("LEGO fillet_bottom", {"studs_x": 2, "studs_y": 4, "clutch_type": "TUBE",
-                             "FILLET_BOTTOM": True,
-                             "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-    ("LEGO skip_concave", {"studs_x": 2, "studs_y": 4, "clutch_type": "TUBE",
-                            "SKIP_CONCAVE": True,
-                            "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
+h_w = dims["h_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
+h_h = dims["h_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
+v_w = dims["v_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
+v_h = dims["v_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
+h_offset_y = (minus_y - plus_y) / 2 * PITCH
+v_offset_x = (minus_x - plus_x) / 2 * PITCH
 
-    # New: NONE clutch
-    ("Hollow 2x4", {"studs_x": 2, "studs_y": 4, "clutch_type": "NONE",
-                     "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
+# Build strut parameters
+strut_thickness = PITCH / math.sqrt(2) - brick_lib.STUD_DIAMETER
+n_struts = sx + sy
+strut_len = (inner_x + inner_y) * 2
+c_start = -(n_struts - 1) / 2 * PITCH
+c_values = [c_start + i * PITCH for i in range(n_struts)]
 
-    # New: Cross shapes
-    ("Cross + LATTICE", {"shape_mode": "CROSS", "studs_plus_x": 2, "studs_minus_x": 2,
-                          "studs_plus_y": 2, "studs_minus_y": 2,
-                          "cross_width_x": 1, "cross_width_y": 1}),
-    ("Cross L TUBE", {"shape_mode": "CROSS", "studs_plus_x": 3, "studs_minus_x": 0,
-                       "studs_plus_y": 3, "studs_minus_y": 0,
-                       "cross_width_x": 1, "cross_width_y": 1,
-                       "clutch_type": "TUBE",
-                       "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
+def _strut_sketch():
+    """Add lattice strut rectangles to current BuildSketch context."""
+    for c in c_values:
+        with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
+            Rectangle(strut_len, strut_thickness)
+        with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
+            Rectangle(strut_len, strut_thickness)
 
-    # New: 4-dir slopes
-    ("Slope -Y", {"studs_x": 2, "studs_y": 4, "enable_slope": True, "slope_minus_y": 3,
-                   "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-    ("Corner roof", {"studs_x": 4, "studs_y": 4, "enable_slope": True,
-                      "slope_minus_x": 3, "slope_minus_y": 3,
-                      "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-    ("Pyramid", {"studs_x": 4, "studs_y": 4, "enable_slope": True,
-                  "slope_plus_x": 3, "slope_minus_x": 3, "slope_plus_y": 3, "slope_minus_y": 3,
-                  "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
+# Approach: build per-arm lattice, clip each in 2D, then union
+with BuildPart() as h_lat:
+    with BuildSketch():
+        _strut_sketch()
+        with Locations([Pos(0, h_offset_y)]):
+            Rectangle(h_w, h_h, mode=Mode.INTERSECT)
+    extrude(amount=cavity_z)
 
-    # Cross + slope combo
-    ("Cross + slope", {"shape_mode": "CROSS", "studs_plus_x": 2, "studs_minus_x": 2,
-                        "studs_plus_y": 3, "studs_minus_y": 0,
-                        "cross_width_x": 1, "cross_width_y": 1,
-                        "enable_slope": True, "slope_plus_y": 3,
-                        "enable_corner_radius": False, "enable_wall_taper": False, "enable_stud_taper": False}),
-]
+with BuildPart() as v_lat:
+    with BuildSketch():
+        _strut_sketch()
+        with Locations([Pos(v_offset_x, 0)]):
+            Rectangle(v_w, v_h, mode=Mode.INTERSECT)
+    extrude(amount=cavity_z)
 
-passed = 0
-failed = 0
-for name, params in configs:
-    # Fresh module state for each config
-    for mod_name in list(sys.modules):
-        if mod_name in ("parametric", "brick_lib", "common", "panel_def",
-                         "parametric_base", "panel_common"):
-            del sys.modules[mod_name]
+lattice = h_lat.part + v_lat.part
+print(f"Per-arm lattice volume: {lattice.volume:.1f}")
 
-    import parametric
-    try:
-        info = parametric.run(params, stl)
-        print(f"  PASS {name}: {info['faces']} faces, build={info['build']:.2f}s")
-        passed += 1
-    except Exception as e:
-        print(f"  FAIL {name}: {e}")
-        failed += 1
+# Check empty quadrant
+with BuildPart() as eq:
+    Pos(-9.6, -9.6, 0) * Box(24, 24, cavity_z,
+                              align=(Align.MIN, Align.MIN, Align.MIN))
+empty_quad = eq.part
+leaked = lattice & empty_quad
+print(f"Empty quadrant volume: {leaked.volume:.1f}")
 
-print(f"\n{'=' * 50}")
-print(f"{passed} passed, {failed} failed, {passed + failed} total")
+# Also test: degenerate rectangle (plus_x=0, minus_x=0, width_x=2, width_y=4)
+# Should produce same lattice as _build_lattice(2, 4, ...)
+dims_rect = brick_lib._cross_footprint_dims(0, 0, 0, 0, 2, 4)
+rect_inner_x = 2 * PITCH - 2 * CLEARANCE - 2 * wt
+rect_inner_y = 4 * PITCH - 2 * CLEARANCE - 2 * wt
 
-if failed:
-    sys.exit(1)
+# Original rectangle lattice
+rect_lattice = brick_lib._build_lattice(2, 4, rect_inner_x, rect_inner_y, cavity_z)
+print(f"\nOriginal rect lattice volume: {rect_lattice.volume:.1f}")
+
+# Per-arm for degenerate rectangle
+rh_w = dims_rect["h_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
+rh_h = dims_rect["h_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
+rv_w = dims_rect["v_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
+rv_h = dims_rect["v_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
+rh_offset_y = 0.0
+rv_offset_x = 0.0
+
+r_strut_thickness = PITCH / math.sqrt(2) - brick_lib.STUD_DIAMETER
+r_n = 2 + 4  # studs_x + studs_y
+r_strut_len = (rect_inner_x + rect_inner_y) * 2
+r_c_start = -(r_n - 1) / 2 * PITCH
+r_c_values = [r_c_start + i * PITCH for i in range(r_n)]
+
+def _rect_struts():
+    for c in r_c_values:
+        with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
+            Rectangle(r_strut_len, r_strut_thickness)
+        with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
+            Rectangle(r_strut_len, r_strut_thickness)
+
+with BuildPart() as rh:
+    with BuildSketch():
+        _rect_struts()
+        Rectangle(rh_w, rh_h, mode=Mode.INTERSECT)
+    extrude(amount=cavity_z)
+
+with BuildPart() as rv:
+    with BuildSketch():
+        _rect_struts()
+        Rectangle(rv_w, rv_h, mode=Mode.INTERSECT)
+    extrude(amount=cavity_z)
+
+rect_via_cross = rh.part + rv.part
+print(f"Rect via cross lattice volume: {rect_via_cross.volume:.1f}")
+print(f"Volume match: {abs(rect_lattice.volume - rect_via_cross.volume) < 1.0}")
