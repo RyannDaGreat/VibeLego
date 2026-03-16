@@ -84,6 +84,12 @@ Launched 7 agents to investigate all angles before writing any code:
 - Lesson 1: VLM multi-angle verification is essential for 3D geometry bugs. A single iso view can be misleading — the 14-angle render revealed the true nature of the problem.
 - Lesson 2: Don't rationalize VLM findings. If the rendered image shows a hole, there IS a hole — investigate the geometry math instead of explaining it away as "the bottom opening from another angle."
 
+### Slope brick tube protrusion (VLM-caught bug)
+- Bottom reinforcement tubes were created at full `height - FLOOR_THICKNESS` (8.6mm), but the slope ceiling at the tube's Y position is lower (~8.26mm for a 2x2). The tube poked through the slope surface.
+- First fix attempt: `split(tubes, bisect_by=cavity_cut_plane, keep=Keep.BOTTOM)`. This catastrophically broke the geometry — the entire brick shell disappeared, leaving only a tube fragment. Face count dropped from 144 to 76. Cause: `split()` on hollow cylinder geometry produces results that corrupt the boolean union with the shell.
+- **Working fix**: compute max Z at each tube position from the cavity cut plane equation (`z = origin_z - slope_dz * (y - origin_y) / slope_dy`), then create individual tubes at the correct limited height. No `split()` involved.
+- Lesson: `split()` on complex geometry (hollow cylinders) can produce degenerate results that break subsequent boolean operations. Prefer computing dimensions analytically over cutting geometry with planes when possible.
+
 ### Blender EEVEE engine name
 - Blender 5.0: engine is `"BLENDER_EEVEE"`, not `"BLENDER_EEVEE_NEXT"` (which was 4.x).
 - `Material.use_nodes` and `World.use_nodes` are deprecated in 5.0 (nodes always active). Removed the calls, BSDF node is available by default.

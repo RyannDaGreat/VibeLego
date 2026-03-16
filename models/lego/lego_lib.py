@@ -526,9 +526,31 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
         if stud_positions:
             add(cylinders_at(STUD_RADIUS, STUD_HEIGHT, stud_positions))
 
-        tubes = lego_bottom_tubes(studs_x, studs_y, height)
-        if tubes is not None:
-            add(tubes)
+        # Bottom tubes — must be height-limited so they don't poke through
+        # the slope. Compute max Z at each tube position from the cavity
+        # cut plane, then create individual tubes at correct heights.
+        if studs_x >= 2 and studs_y >= 2:
+            tube_count_x = studs_x - 1
+            tube_count_y = studs_y - 1
+            cavity_origin_y = hinge_y - offset * slope_dz / slope_normal_mag
+            cavity_origin_z = height - offset * slope_dy / slope_normal_mag
+            default_tube_h = height - FLOOR_THICKNESS
+
+            for ti in range(tube_count_x):
+                for tj in range(tube_count_y):
+                    tx = (ti - (tube_count_x - 1) / 2) * PITCH
+                    ty = (tj - (tube_count_y - 1) / 2) * PITCH
+                    # Max Z from cavity cut plane at the tube's far +Y edge
+                    # (the point closest to the low end of the slope)
+                    ty_far = ty + TUBE_OUTER_RADIUS
+                    max_z = (cavity_origin_z
+                             - slope_dz * (ty_far - cavity_origin_y) / slope_dy)
+                    tube_h = min(default_tube_h, max_z)
+                    if tube_h > FLOOR_THICKNESS:
+                        add(hollow_cylinders_at(
+                            TUBE_OUTER_RADIUS, TUBE_INNER_RADIUS,
+                            tube_h, [Pos(tx, ty, 0)],
+                        ))
 
         ridge = lego_bottom_ridge(studs_x, studs_y, height)
         if ridge is not None:
