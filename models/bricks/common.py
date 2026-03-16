@@ -29,6 +29,7 @@ STUD_TEXT = "CLARA"
 STUD_TEXT_FONT = "Arial"  # font name (system font) or path to .ttf file
 STUD_TEXT_FONT_SIZE = 1.0
 STUD_TEXT_HEIGHT = 0.1  # raised text height
+STUD_TEXT_ROTATION = 0.0  # text rotation angle (degrees)
 
 STUD_RADIUS = STUD_DIAMETER / 2
 

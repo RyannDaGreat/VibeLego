@@ -16,7 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from common import (
     WALL_THICKNESS, FLOOR_THICKNESS, CLEARANCE,
-    ENABLE_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+    ENABLE_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, STUD_TEXT_ROTATION,
     FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM,
 )
 
@@ -93,6 +93,13 @@ def text_section(stud_text_default):
                 "type": "float", "label": "Text Height",
                 "default": STUD_TEXT_HEIGHT, "min": 0.01, "max": 1.0,
                 "step": 1, "precision": 3,
+            },
+            {
+                "key": "stud_text_rotation", "json_key": "STUD_TEXT_ROTATION",
+                "type": "float", "label": "Rotation",
+                "default": STUD_TEXT_ROTATION, "min": 0.0, "max": 360.0,
+                "step": 100, "precision": 1,
+                "description": "Text rotation angle in degrees (e.g. 180 to flip upside down)",
             },
         ],
     }

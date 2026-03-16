@@ -33,7 +33,7 @@ from common import (
     PITCH, STUD_DIAMETER, STUD_RADIUS, STUD_HEIGHT,
     BRICK_HEIGHT, WALL_THICKNESS, FLOOR_THICKNESS,
     CLEARANCE, FILLET_RADIUS, ENABLE_FILLET, EDGE_STYLE, FILLET_BOTTOM, ENABLE_TEXT,
-    STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
+    STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT, STUD_TEXT_ROTATION,
     bevel_above_z,
 )
 
@@ -349,6 +349,7 @@ def clara_brick(studs_x, studs_y, height=BRICK_HEIGHT,
             with GridLocations(PITCH, PITCH, studs_x, studs_y):
                 Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
                      font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
+                     rotation=STUD_TEXT_ROTATION,
                      align=(Align.CENTER, Align.CENTER))
         extrude(amount=STUD_TEXT_HEIGHT)
 
@@ -513,6 +514,7 @@ def clara_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1,
             with Locations([Pos(x, y) for x, y in flat_xy]):
                 Text(STUD_TEXT, font_size=STUD_TEXT_FONT_SIZE,
                      font=STUD_TEXT_FONT, font_style=FontStyle.BOLD,
+                     rotation=STUD_TEXT_ROTATION,
                      align=(Align.CENTER, Align.CENTER))
         extrude(amount=STUD_TEXT_HEIGHT)
 
