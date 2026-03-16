@@ -223,7 +223,12 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
                          align=(Align.CENTER, Align.CENTER, Align.MIN))
 
     # Fillet, then text on flat studs
-    result = bevel_above_z(brick.part, FILLET_RADIUS, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM) if ENABLE_FILLET else brick.part
+    result = brick.part
+    if ENABLE_FILLET:
+        try:
+            result = bevel_above_z(result, FILLET_RADIUS, style=EDGE_STYLE, include_bottom=FILLET_BOTTOM)
+        except ValueError:
+            pass  # Fillet failure on slopes is a known OCCT limitation
 
     if flat_xy and ENABLE_TEXT:
         with BuildPart() as final:
