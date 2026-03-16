@@ -443,6 +443,13 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
     The slope descends toward +Y (the "back" of the brick). The flat_rows
     parameter controls how many rows of studs remain on the front.
 
+    Build order (critical — prevents exposed cavity):
+        1. Solid outer box → cut slope → solid sloped shell
+        2. Interior cavity → cut by same slope plane → trimmed cavity
+        3. Subtract trimmed cavity from shell → hollow slope with solid walls
+        4. Add internal structure (tubes/ridge) + external (studs)
+        5. Fillet → text
+
     Args:
         studs_x (int): Studs along X.
         studs_y (int): Studs along Y (must be >= 2).
@@ -456,9 +463,40 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
         >>> # lego_slope(2, 2) -> 2x2 slope, 1 flat row, 1 sloped row
         >>> # lego_slope(2, 4, flat_rows=2) -> 2x4 slope, 2 flat rows
     """
+    outer_x = studs_x * PITCH - 2 * CLEARANCE
     outer_y = studs_y * PITCH - 2 * CLEARANCE
+    inner_x = outer_x - 2 * WALL_THICKNESS
+    inner_y = outer_y - 2 * WALL_THICKNESS
+    inner_z = height - FLOOR_THICKNESS
 
-    # XY coords for flat rows (toward -Y, j < flat_rows)
+    # Slope cutting plane: from top at hinge line to lip at far edge.
+    # Real bricks have a vertical lip (WALL_THICKNESS tall) at the low end —
+    # the slope doesn't go all the way to Z=0.
+    hinge_y = -outer_y / 2 + flat_rows * PITCH
+    slope_dy = outer_y / 2 - hinge_y
+    slope_dz = height - WALL_THICKNESS  # slope drops to WALL_THICKNESS, not 0
+    cut_plane = Plane(
+        origin=(0, hinge_y, height),
+        x_dir=(1, 0, 0),
+        z_dir=(0, slope_dz, slope_dy),
+    )
+
+    # 1. Solid outer box → cut slope
+    with BuildPart() as outer:
+        Box(outer_x, outer_y, height,
+            align=(Align.CENTER, Align.CENTER, Align.MIN))
+    sloped_outer = split(outer.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
+
+    # 2. Interior cavity → cut by same plane (stays inside the shell)
+    with BuildPart() as inner:
+        Box(inner_x, inner_y, inner_z,
+            align=(Align.CENTER, Align.CENTER, Align.MIN))
+    sloped_cavity = split(inner.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
+
+    # 3. Shell = outer - cavity (direct boolean, not add+mode)
+    shell = sloped_outer - sloped_cavity
+
+    # 4. Add internal features + studs
     flat_xy = [
         ((i - (studs_x - 1) / 2) * PITCH,
          (j - (studs_y - 1) / 2) * PITCH)
@@ -467,9 +505,8 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
     ]
     stud_positions = [Pos(x, y, height) for x, y in flat_xy]
 
-    # Build full body + flat studs + bottom structure
     with BuildPart() as brick:
-        add(lego_brick_body(studs_x, studs_y, height))
+        add(shell)
 
         if stud_positions:
             add(cylinders_at(STUD_RADIUS, STUD_HEIGHT, stud_positions))
@@ -482,19 +519,10 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
         if ridge is not None:
             add(ridge)
 
-    # Cut the slope: plane from top at hinge to bottom at far edge
-    hinge_y = -outer_y / 2 + flat_rows * PITCH
-    slope_dy = outer_y / 2 - hinge_y
-    cut_plane = Plane(
-        origin=(0, hinge_y, height),
-        x_dir=(1, 0, 0),
-        z_dir=(0, height, slope_dy),
-    )
-    result = split(brick.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
+    # 4. Fillet (before text)
+    result = fillet_above_z(brick.part, FILLET_RADIUS)
 
-    # Fillet, then add text on flat studs
-    result = fillet_above_z(result, FILLET_RADIUS)
-
+    # 5. Raised text on flat studs only
     text_positions = [Pos(x, y, height + STUD_HEIGHT) for x, y in flat_xy]
     if text_positions:
         with BuildPart() as final:

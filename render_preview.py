@@ -47,11 +47,24 @@ STL_PATH, OUTPUT_DIR = parse_args()
 # ── Camera angles ────────────────────────────────────────────────────────────
 # Each entry: (name, azimuth_deg, elevation_deg)
 
+# 6 cardinal directions + 8 diagonal (45° elevation) = 14 total
 CAMERA_ANGLES = [
-    ("front_iso", 45, 30),
-    ("back_iso", 225, 30),
-    ("top", 0, 89),
-    ("bottom", 0, -89),
+    # Cardinals (face-on views)
+    ("front",   0,   0),      # +X face
+    ("back",    180, 0),      # -X face
+    ("right",   90,  0),      # +Y face
+    ("left",    270, 0),      # -Y face
+    ("top",     0,   89),     # top-down
+    ("bottom",  0,   -89),    # bottom-up
+    # Diagonals (45° elevation, 8 octants)
+    ("iso_fr",  45,  30),     # front-right iso
+    ("iso_fl",  315, 30),     # front-left iso
+    ("iso_br",  135, 30),     # back-right iso
+    ("iso_bl",  225, 30),     # back-left iso
+    ("iso_fr_lo", 45,  -30),  # front-right low (looking up)
+    ("iso_fl_lo", 315, -30),  # front-left low
+    ("iso_br_lo", 135, -30),  # back-right low
+    ("iso_bl_lo", 225, -30),  # back-left low
 ]
 
 RENDER_SIZE_PX = 1024
