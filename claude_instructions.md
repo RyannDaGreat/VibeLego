@@ -44,6 +44,13 @@ and helps debug geometry issues. The system is **generic** — it works on any
 brick mesh (LEGO, Clara, future systems) by classifying faces using geometric
 position and surface normal relative to the brick's parametric bounds.
 
+**Overlapping regions (NOT mutually exclusive)**: Regions form a hierarchy.
+A parent region (e.g. "Walls (all)") highlights all its children ("Walls (straight)"
++ "Wall Taper"). `classify_face()` returns the most specific region; parent
+groups are resolved in the highlighting logic via `ANATOMY_REGION_GROUPS`.
+Each sub-region has its own distinct color so they remain visually separable
+even when shown together.
+
 **Panel controls** (in the "Anatomy" section, below parametric sections):
 - **Show Anatomy Colors** checkbox — toggles coloring on/off, switches viewport
   shading between MATERIAL (colors visible) and SOLID (matcap)
@@ -53,17 +60,21 @@ position and surface normal relative to the brick's parametric bounds.
 **Regions and colors**:
 | Region | Color | Classification rule |
 |--------|-------|---------------------|
-| Studs | Red | Face center Z > brick top |
+| Studs (all) | — | Parent group: studs + stud_taper |
+| Studs (straight) | Red | Straight cylinder portion of studs |
+| Stud Taper | Pink | Tapered zone at stud tops (when stud_taper active) |
 | Logo | Gold | Face center Z > stud tops (text extrusion) |
 | Deck | Green | Horizontal upward face at Z ≈ brick height |
-| Walls | Blue | Face on outer perimeter, between Z=0 and top |
+| Walls (all) | — | Parent group: walls + taper |
+| Walls (straight) | Blue | Face on outer perimeter, below taper zone |
+| Wall Taper | Light blue | Tapered zone at top of walls (when taper active) |
 | Internals | Purple | Face inside cavity bounds (tubes, lattice, ridges) |
 | Base | Gray | Horizontal downward face at Z ≈ 0 |
 | Fillets/Other | Light gray | Unclassified (fillet transitions, etc.) |
 
 **Implementation**:
-- `panel_common.py`: `classify_face(mesh, poly, params)`, `ANATOMY_COLORS`, `ANATOMY_REGION_ITEMS`
-  — shared definitions imported by each `panel_def.py` (can be overridden per-system)
+- `panel_common.py`: `classify_face(mesh, poly, params)`, `ANATOMY_COLORS`, `ANATOMY_REGION_ITEMS`,
+  `ANATOMY_REGION_GROUPS` — shared definitions imported by each `panel_def.py`
 - `blender_watcher.py`: generic Blender machinery only — color attributes, materials, viewport toggle
   — reads anatomy data from `panel_def` via `getattr()` (gated on availability)
 - `_apply_anatomy_colors(obj, params, highlight_region)` — FLOAT_COLOR attribute on CORNER domain
@@ -225,7 +236,7 @@ Clara panel (same tab, different layout):
   ├── Shape: studs_x, studs_y (no brick_type enum — always lattice)
   ├── Studs & Body: pitch (stud spacing), stud_diameter, stud_height, brick_height (no plate_height)
   ├── Walls: wall_thickness, floor_thickness, clearance
-  ├── 3D Printing: corner_radius, taper_height, taper_inset
+  ├── 3D Printing: corner_radius, wall taper (height/inset/curve), stud taper (height/inset/curve)
   ├── Text: stud_text, stud_text_font, stud_text_font_size, stud_text_height
   ├── Polish: enable_fillet (checkbox), fillet_radius
   └── Anatomy: show_anatomy (checkbox), region selector dropdown
@@ -287,8 +298,9 @@ Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a diff
 
 **3D Printing Features** (Clara-specific, in "3D Printing" panel section):
 - **Corner radius** (`corner_radius`): 2D rounding of the brick outline (like CSS `border-radius`). Visible from top-down view. Uses `fillet(sk.vertices(), radius)` on the outer sketch. Inner cavity stays sharp — thicker corners = stronger for printing. Clamped to half the smallest outer dimension.
-- **Wall taper** (`taper_height` + `taper_inset`): Top portion of outer walls slopes inward. Creates a 3-profile loft: bottom profile (Z=0) → same profile at taper start → inset profile at top. Straight walls below, linear taper above. Both features combine: tapered top also has rounded corners.
-- When neither feature is active, `clara_brick()` uses the fast `Box()` path (no loft/sketch overhead).
+- **Wall taper** (`taper_height` + `taper_inset` + `taper_curve`): Top portion of outer walls slopes inward. LINEAR = straight line. CURVED = quarter-circle profile `f(t) = 1 - sqrt(1 - t^2)` — tangent to wall at bottom, tangent to deck at top, no inflection point. Curved uses 8 intermediate loft profiles.
+- **Stud taper** (`stud_taper_height` + `stud_taper_inset` + `stud_taper_curve`): Top portion of studs tapers inward (radius decreases). Same LINEAR/CURVED options. Built as a standalone lofted Part, placed via `add()` + `GridLocations`.
+- When no taper/radius is active, `clara_brick()` uses the fast `Box()` path (no loft overhead).
 
 **Implementation** (`clara_brick()` in `models/bricks/clara/clara_lib.py`):
 1. Shell: 3-branch construction — has_taper → 3-profile loft, corner_radius > 0 → rounded rect extrude, else → Box (fastest)

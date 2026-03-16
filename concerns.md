@@ -408,3 +408,35 @@ Key findings:
 - Clara both combined: 629 faces ✓
 - Clara lattice tests: 7/7 ✓
 - LEGO default: 541 faces (unchanged) ✓
+
+## 2026-03-16: Taper Curves, Stud Taper, Overlapping Anatomy
+
+### Taper curve modes
+- Added LINEAR (straight) and CURVED (quarter-circle) options for both wall and stud taper.
+- The curve f(t) = 1 - sqrt(1 - t^2) is a quarter-circle: tangent to vertical wall at bottom (f'(0) = 0), tangent to horizontal deck at top (f'(1) → ∞). Concave up, no inflection point — a "C curve", not an S-curve.
+- User correctly identified: "S curve? weird term... it's just a 3rd order polynomial or bezier? only one inflection point here... more like a C curve."
+- Implementation: for CURVED mode, 8 intermediate loft profiles sample the curve between taper_start and top. `loft(ruled=True)` for piecewise-linear approximation. 8 steps gives smooth visual results.
+
+### Stud taper
+- Same architecture as wall taper: `_build_stud()` creates one tapered stud as a standalone Part, then `add(stud)` inside `GridLocations` places copies.
+- The lofted stud uses Circle profiles at different Z heights with decreasing radii.
+- Verified `add(external_part)` inside `GridLocations` works for placing copies.
+
+### Overlapping anatomy regions
+- Regions are NOT mutually exclusive. "Wall Taper" is a sub-region of "Walls". "Stud Taper" is a sub-region of "Studs".
+- `classify_face()` returns the most-specific region (e.g. "taper" not "walls").
+- `ANATOMY_REGION_GROUPS` maps parent keys to child lists: `{"walls_all": ["walls", "taper"], "studs_all": ["studs", "stud_taper"]}`.
+- blender_watcher resolves groups: if selected region is in REGION_GROUPS, matches any child. Colors remain distinct per sub-region.
+
+### Build verification
+| Config | Faces |
+|--------|-------|
+| Default (no taper) | 613 |
+| Linear wall taper | 617 |
+| Curved wall taper | 693 |
+| Linear stud taper | 629 |
+| Curved stud taper | 693 |
+| Wall+stud curved | 773 |
+| Corner+wall+stud all curved | 781 |
+| LEGO default (unchanged) | 541 |
+| Lattice tests | 7/7 |
