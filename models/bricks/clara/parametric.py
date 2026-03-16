@@ -44,7 +44,8 @@ def _build(params):
 
     Args:
         params (dict): Must include "studs_x", "studs_y". Optional:
-            "corner_radius", "taper_height", "taper_inset" for 3D printing.
+            "corner_radius", "taper_height", "taper_inset", "taper_curve",
+            "stud_taper_height", "stud_taper_inset", "stud_taper_curve".
 
     Returns:
         Part: The built Clara brick geometry.
@@ -52,16 +53,25 @@ def _build(params):
     Examples:
         >>> # _build({"studs_x": 2, "studs_y": 4})
         >>> # _build({"studs_x": 2, "studs_y": 4, "corner_radius": 1.5})
+        >>> # _build({"studs_x": 2, "studs_y": 4, "taper_curve": "CURVED"})
     """
     studs_x = int(params.get("studs_x", 2))
     studs_y = int(params.get("studs_y", 4))
     corner_radius = float(params.get("corner_radius", 0))
     taper_height = float(params.get("taper_height", 0))
     taper_inset = float(params.get("taper_inset", 0))
+    taper_curve = str(params.get("taper_curve", "LINEAR"))
+    stud_taper_height = float(params.get("stud_taper_height", 0))
+    stud_taper_inset = float(params.get("stud_taper_inset", 0))
+    stud_taper_curve = str(params.get("stud_taper_curve", "LINEAR"))
     return clara_lib.clara_brick(studs_x, studs_y,
                                   corner_radius=corner_radius,
                                   taper_height=taper_height,
-                                  taper_inset=taper_inset)
+                                  taper_inset=taper_inset,
+                                  taper_curve=taper_curve,
+                                  stud_taper_height=stud_taper_height,
+                                  stud_taper_inset=stud_taper_inset,
+                                  stud_taper_curve=stud_taper_curve)
 
 
 def run(params, stl_path):

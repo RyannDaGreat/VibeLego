@@ -77,15 +77,46 @@ SECTIONS = [
             },
             {
                 "key": "taper_height", "json_key": "taper_height", "type": "float",
-                "label": "Taper Height", "default": 0.0, "min": 0.0, "max": 5.0,
+                "label": "Wall Taper Height", "default": 0.0, "min": 0.0, "max": 5.0,
                 "step": 10, "precision": 2,
                 "description": "How far down from top the wall taper begins (mm)",
             },
             {
                 "key": "taper_inset", "json_key": "taper_inset", "type": "float",
-                "label": "Taper Inset", "default": 0.0, "min": 0.0, "max": 2.0,
+                "label": "Wall Taper Inset", "default": 0.0, "min": 0.0, "max": 2.0,
                 "step": 10, "precision": 2,
                 "description": "How far walls narrow at the top (mm per side)",
+            },
+            {
+                "key": "taper_curve", "json_key": "taper_curve", "type": "enum",
+                "label": "Wall Taper Curve", "default": "LINEAR",
+                "items": [
+                    ("LINEAR", "Linear", "Straight-line taper"),
+                    ("CURVED", "Curved", "Quarter-circle: tangent to wall at bottom, tangent to deck at top"),
+                ],
+            },
+            {
+                "key": "stud_taper_height", "json_key": "stud_taper_height",
+                "type": "float",
+                "label": "Stud Taper Height", "default": 0.0, "min": 0.0, "max": 2.0,
+                "step": 10, "precision": 2,
+                "description": "Height of tapered zone at top of studs (mm)",
+            },
+            {
+                "key": "stud_taper_inset", "json_key": "stud_taper_inset",
+                "type": "float",
+                "label": "Stud Taper Inset", "default": 0.0, "min": 0.0, "max": 1.0,
+                "step": 10, "precision": 2,
+                "description": "How far stud radius narrows at top (mm)",
+            },
+            {
+                "key": "stud_taper_curve", "json_key": "stud_taper_curve",
+                "type": "enum",
+                "label": "Stud Taper Curve", "default": "LINEAR",
+                "items": [
+                    ("LINEAR", "Linear", "Straight-line stud taper"),
+                    ("CURVED", "Curved", "Quarter-circle profile"),
+                ],
             },
         ],
     },
