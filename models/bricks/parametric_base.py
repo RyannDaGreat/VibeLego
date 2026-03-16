@@ -14,7 +14,7 @@ import time
 from build123d import export_stl
 
 # Type -> cast function for param overrides
-_TYPE_CASTERS = {"float": float, "string": str, "bool": bool, "int": int}
+_TYPE_CASTERS = {"float": float, "string": str, "bool": bool, "int": int, "enum": str}
 
 
 def apply_overrides(params, common_mod, lib_mod, sections,

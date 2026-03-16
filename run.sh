@@ -16,15 +16,11 @@ WATCHER_SCRIPT="$SCRIPT_DIR/blender_watcher.py"
 
 # ── Validate arguments ────────────────────────────────────────────────────────
 
+DEFAULT_SOURCE="$SCRIPT_DIR/models/bricks/clara/clara.py"
+
 if [[ $# -lt 1 ]]; then
-    echo "Usage: $0 <source.py>"
-    echo ""
-    echo "  source.py  Path to a build123d Python script."
-    echo "             The script should export its result to the path in"
-    echo "             \$BUILD123D_PREVIEW_STL (set automatically)."
-    echo ""
-    echo "Example: $0 models/example_box.py"
-    exit 1
+    echo "No source specified, using default: $DEFAULT_SOURCE"
+    set -- "$DEFAULT_SOURCE"
 fi
 
 SOURCE_FILE="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
