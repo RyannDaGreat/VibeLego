@@ -219,16 +219,8 @@ def main():
 
     model_obj = bpy.context.selected_objects[0]
 
-    # Auto-smooth shading — reveals surface detail from STL facets
-    bpy.ops.object.shade_smooth()
-    # Auto smooth by angle: faces within 30° of each other get smooth normals,
-    # sharp edges (studs, walls) stay crisp
-    if hasattr(model_obj.data, "use_auto_smooth"):
-        model_obj.data.use_auto_smooth = True
-        model_obj.data.auto_smooth_angle = math.radians(30)
-    else:
-        # Blender 4.1+ uses modifier-based auto smooth
-        bpy.ops.object.modifier_add(type="SMOOTH")
+    # Flat shading — crisp CAD facets, no smooth interpolation
+    bpy.ops.object.shade_flat()
 
     # Apply plastic material
     mat = create_plastic_material()

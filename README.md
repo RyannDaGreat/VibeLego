@@ -165,11 +165,14 @@ Clara adds a lattice step: 2D rectangles at ±45° via `Locations([Pos * Rot])`,
 ## Tests
 
 ```bash
-# Run lattice geometry tests
+# Integration tests (20 configs: all clutch types, shapes, slopes, combos)
+uv run models/bricks/tests/test_integration.py
+
+# Lattice geometry tests (7 pure math tests)
 uv run models/bricks/tests/test_lattice.py
 
-# Build all brick configurations (18 configs)
-uv run scratchpad.py
+# Regenerate README images
+uv run generate_readme.py
 ```
 
 The lattice tests verify: tangent contact with studs, no overlap, diamond fit, symmetry, wall connectivity, and correct strut count across brick sizes from 1x1 to 8x16.
