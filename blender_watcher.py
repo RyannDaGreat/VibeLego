@@ -10,6 +10,7 @@ Usage (via run.sh, not directly):
 """
 
 import bpy
+import glob
 import os
 import shutil
 import sys
@@ -53,8 +54,9 @@ if UV_PATH is None:
 
 POLL_INTERVAL_SECONDS = 0.5
 OBJECT_NAME = "build123d_preview"
+WATCH_DIR = os.path.dirname(os.path.abspath(SOURCE_FILE))
 
-_last_source_mtime = 0.0
+_last_dir_mtime = 0.0
 _last_stl_mtime = 0.0
 
 
@@ -221,27 +223,45 @@ def run_build(source_path, stl_path):
 
 # ── File watcher ───────────────────────────────────────────────────────────────
 
+def get_dir_mtime():
+    """
+    Pure function, specific. Get the max mtime of all .py files in the
+    watched directory. Used to detect changes in the source file or any
+    of its local dependencies (e.g., lego_lib.py).
+
+    Returns:
+        float: Maximum mtime across all .py files, or 0.0 if none found.
+
+    Examples:
+        >>> # get_dir_mtime() -> 1710000000.0
+    """
+    py_files = glob.glob(os.path.join(WATCH_DIR, "*.py"))
+    if not py_files:
+        return 0.0
+    return max(os.path.getmtime(f) for f in py_files)
+
+
 def poll_source_file():
     """
     Command, specific. Timer callback registered with bpy.app.timers.
-    Polls the source .py file for mtime changes. On change, runs the build
-    and updates the mesh.
+    Polls all .py files in the source directory for mtime changes. On
+    any change, re-runs the build and updates the mesh.
 
     Returns:
         float: Seconds until next poll (POLL_INTERVAL_SECONDS), or None to stop.
     """
-    global _last_source_mtime, _last_stl_mtime
+    global _last_dir_mtime, _last_stl_mtime
 
     # Check source file exists
     if not os.path.exists(SOURCE_FILE):
         print(f"[watcher] Source file not found: {SOURCE_FILE}")
         return POLL_INTERVAL_SECONDS
 
-    source_mtime = os.path.getmtime(SOURCE_FILE)
+    dir_mtime = get_dir_mtime()
 
-    if source_mtime != _last_source_mtime:
-        _last_source_mtime = source_mtime
-        print(f"[watcher] Source changed, rebuilding...")
+    if dir_mtime != _last_dir_mtime:
+        _last_dir_mtime = dir_mtime
+        print(f"[watcher] .py file changed in {WATCH_DIR}, rebuilding...")
 
         if run_build(SOURCE_FILE, STL_PATH):
             # Check if STL was actually produced/updated
@@ -279,8 +299,8 @@ def main():
 
     # Initial build
     if os.path.exists(SOURCE_FILE):
-        global _last_source_mtime, _last_stl_mtime
-        _last_source_mtime = os.path.getmtime(SOURCE_FILE)
+        global _last_dir_mtime, _last_stl_mtime
+        _last_dir_mtime = get_dir_mtime()
 
         print("[watcher] Running initial build...")
         if run_build(SOURCE_FILE, STL_PATH):
