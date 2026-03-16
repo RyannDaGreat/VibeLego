@@ -16,6 +16,7 @@ Output: 4 PNG files in output_dir:
 
 import bpy
 import math
+import mathutils
 import os
 import sys
 
@@ -152,7 +153,7 @@ def setup_camera():
     """
     cam_data = bpy.data.cameras.new(name="RenderCam")
     cam_data.type = "ORTHO"
-    cam_data.ortho_scale = 60  # covers ~60mm width — enough for a 2x4
+    # ortho_scale set per-frame by fit_ortho_to_object()
     cam_obj = bpy.data.objects.new("RenderCam", cam_data)
     bpy.context.scene.collection.objects.link(cam_obj)
     bpy.context.scene.camera = cam_obj
@@ -202,6 +203,37 @@ def setup_render_settings():
     scene.render.image_settings.color_mode = "RGBA"
 
 
+ORTHO_PADDING = 1.15  # 15% padding around the object
+
+
+def fit_ortho_to_object(cam_obj, model_obj):
+    """
+    Command, specific. Set ortho_scale so the object fills the frame.
+
+    Projects all 8 bbox corners into camera space and sets ortho_scale
+    to the larger of the projected width/height (plus padding).
+
+    Args:
+        cam_obj: Blender camera object (already positioned + constrained).
+        model_obj: The mesh object to fit.
+    """
+    # Force constraint evaluation so camera matrix is up to date
+    bpy.context.view_layer.update()
+
+    cam_matrix_inv = cam_obj.matrix_world.inverted()
+    bbox_world = [model_obj.matrix_world @ mathutils.Vector(c)
+                  for c in model_obj.bound_box]
+    bbox_cam = [cam_matrix_inv @ v for v in bbox_world]
+
+    # In camera space: X = right, Y = up, Z = into camera
+    xs = [v.x for v in bbox_cam]
+    ys = [v.y for v in bbox_cam]
+    span_x = max(xs) - min(xs)
+    span_y = max(ys) - min(ys)
+
+    cam_obj.data.ortho_scale = max(span_x, span_y) * ORTHO_PADDING
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -233,6 +265,7 @@ def main():
     # Render each angle
     for name, azimuth, elevation in CAMERA_ANGLES:
         position_camera(cam_obj, azimuth, elevation, CAMERA_DISTANCE)
+        fit_ortho_to_object(cam_obj, model_obj)
         output_path = os.path.join(OUTPUT_DIR, f"{name}.png")
         bpy.context.scene.render.filepath = output_path
         bpy.ops.render.render(write_still=True)
