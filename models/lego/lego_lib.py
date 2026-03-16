@@ -41,6 +41,9 @@ TUBE_INNER_DIAMETER = 4.8   # inner diameter (~stud diameter)
 RIDGE_WIDTH = 0.8       # width of the bottom ridge/spline rib
 RIDGE_HEIGHT = 0.8      # how far the ridge extends down from the ceiling
 
+# Fillets — real Lego bricks have subtle edge rounding
+FILLET_RADIUS = 0.15    # edge fillet radius (measured ~0.1-0.2mm on real bricks)
+
 # Derived
 STUD_RADIUS = STUD_DIAMETER / 2
 TUBE_OUTER_RADIUS = TUBE_OUTER_DIAMETER / 2
@@ -260,4 +263,9 @@ def lego_brick(studs_x, studs_y, height=BRICK_HEIGHT):
         if ridge is not None:
             add(ridge)
 
-    return brick.part
+    result = brick.part
+
+    # Apply fillets to all edges for realistic appearance
+    result = result.fillet(FILLET_RADIUS, result.edges())
+
+    return result
