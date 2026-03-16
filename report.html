@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>build123d → Blender Live Preview: Architecture</title>
+
+  <!-- KaTeX for equations -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false}
+      ]
+    });"></script>
+
+  <!-- D3.js for charts -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+
+  <!-- Mermaid.js for architecture diagrams -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+
+  <style>
+    :root {
+      --font-serif: Georgia, 'Times New Roman', serif;
+      --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+      --color-bg: #fafaf8;
+      --color-bg-dark: #1a1a1c;
+      --color-surface: #ffffff;
+      --color-surface-dark: #242428;
+      --color-border: #e2e2dc;
+      --color-border-dark: #3a3a40;
+      --color-text: #222222;
+      --color-text-dark: #e8e8e4;
+      --color-text-muted: #666660;
+      --color-text-muted-dark: #999990;
+      --color-accent: #1a7a6b;
+      --color-accent-light: #e8f5f2;
+      --color-accent-dark-bg: #0d4a3e;
+      --color-chosen: #1a7a6b;
+      --color-rejected: #888880;
+      --color-interesting: #3a6ea8;
+      --color-warning: #b85c00;
+      --color-warning-light: #fff3e8;
+
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 24px;
+      --space-xl: 40px;
+      --space-2xl: 64px;
+
+      --content-width: 860px;
+      --wide-width: 1100px;
+
+      --line-height-text: 1.75;
+      --line-height-heading: 1.25;
+
+      --transition-speed: 0.2s;
+    }
+
+    /* ── Dark mode ── */
+    [data-theme="dark"] {
+      --color-bg: var(--color-bg-dark);
+      --color-surface: var(--color-surface-dark);
+      --color-border: var(--color-border-dark);
+      --color-text: var(--color-text-dark);
+      --color-text-muted: var(--color-text-muted-dark);
+      --color-accent-light: var(--color-accent-dark-bg);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      font-size: 17px;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--font-serif);
+      background: var(--color-bg);
+      color: var(--color-text);
+      line-height: var(--line-height-text);
+      transition: background var(--transition-speed), color var(--transition-speed);
+    }
+
+    /* ── Layout ── */
+    .page-header {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: var(--space-xl) var(--space-lg);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .page-header-inner {
+      max-width: var(--wide-width);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-md);
+    }
+
+    .site-title {
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+    }
+
+    .dark-toggle {
+      background: none;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      padding: var(--space-xs) var(--space-sm);
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: var(--color-text-muted);
+      transition: border-color var(--transition-speed), color var(--transition-speed);
+    }
+    .dark-toggle:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+    .article-header {
+      max-width: var(--content-width);
+      margin: 0 auto;
+      padding: var(--space-2xl) var(--space-lg) var(--space-xl);
+    }
+
+    .article-header h1 {
+      font-family: var(--font-serif);
+      font-size: 2.5rem;
+      font-weight: normal;
+      line-height: var(--line-height-heading);
+      color: var(--color-text);
+      margin-bottom: var(--space-md);
+    }
+
+    .article-meta {
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      color: var(--color-text-muted);
+      display: flex;
+      gap: var(--space-lg);
+      flex-wrap: wrap;
+    }
+
+    .article-meta span { display: flex; align-items: center; gap: var(--space-xs); }
+
+    main {
+      max-width: var(--content-width);
+      margin: 0 auto;
+      padding: 0 var(--space-lg) var(--space-2xl);
+    }
+
+    /* ── Sections ── */
+    details {
+      margin-bottom: var(--space-xl);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      background: var(--color-surface);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+      transition: box-shadow var(--transition-speed);
+    }
+
+    details:hover { box-shadow: var(--shadow-md); }
+
+    details summary {
+      padding: var(--space-lg) var(--space-xl);
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-md);
+      border-radius: var(--radius-lg);
+      transition: background var(--transition-speed);
+    }
+    details[open] summary { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+    details summary::-webkit-details-marker { display: none; }
+    details summary:hover { background: var(--color-accent-light); }
+
+    .summary-title {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    .section-num {
+      font-family: var(--font-sans);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      background: var(--color-accent-light);
+      padding: 2px var(--space-sm);
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+    }
+
+    details summary h2 {
+      font-family: var(--font-serif);
+      font-size: 1.3rem;
+      font-weight: normal;
+      line-height: var(--line-height-heading);
+      color: var(--color-text);
+    }
+
+    .chevron {
+      font-size: 0.9rem;
+      color: var(--color-text-muted);
+      transition: transform var(--transition-speed);
+      flex-shrink: 0;
+    }
+    details[open] .chevron { transform: rotate(90deg); }
+
+    .section-content {
+      padding: var(--space-md) var(--space-xl) var(--space-xl);
+    }
+
+    /* ── Typography ── */
+    p {
+      margin-bottom: var(--space-md);
+    }
+
+    h3 {
+      font-family: var(--font-serif);
+      font-size: 1.1rem;
+      font-weight: bold;
+      margin: var(--space-xl) 0 var(--space-sm);
+      color: var(--color-text);
+    }
+
+    h4 {
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-text-muted);
+      margin: var(--space-lg) 0 var(--space-sm);
+    }
+
+    a { color: var(--color-accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.82em;
+      background: var(--color-accent-light);
+      color: var(--color-accent);
+      padding: 2px 5px;
+      border-radius: var(--radius-sm);
+    }
+
+    pre {
+      background: #f0f0ec;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-md);
+      overflow-x: auto;
+      margin: var(--space-md) 0;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+    [data-theme="dark"] pre { background: #1e1e22; }
+    pre code {
+      background: none;
+      color: var(--color-text);
+      padding: 0;
+      font-size: inherit;
+    }
+
+    ul, ol {
+      padding-left: var(--space-xl);
+      margin-bottom: var(--space-md);
+    }
+
+    li { margin-bottom: var(--space-xs); }
+
+    /* ── Tables ── */
+    .table-wrap {
+      overflow-x: auto;
+      margin: var(--space-md) 0;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      font-family: var(--font-sans);
+      table-layout: auto;
+    }
+
+    thead th {
+      padding: var(--space-sm) var(--space-md);
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--color-text-muted);
+      background: var(--color-accent-light);
+      border-bottom: 2px solid var(--color-border);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    thead th:hover { color: var(--color-accent); }
+
+    thead th .sort-indicator {
+      display: inline-block;
+      margin-left: 4px;
+      opacity: 0.4;
+      font-size: 0.7em;
+    }
+    thead th.sorted-asc .sort-indicator::after { content: ' ▲'; opacity: 1; }
+    thead th.sorted-desc .sort-indicator::after { content: ' ▼'; opacity: 1; }
+    thead th:not(.sorted-asc):not(.sorted-desc) .sort-indicator::after { content: ' ⇅'; }
+
+    tbody tr {
+      border-bottom: 1px solid var(--color-border);
+      transition: background var(--transition-speed);
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:nth-child(even) { background: var(--color-accent-light); }
+    tbody tr:hover { background: #d4ede8; }
+    [data-theme="dark"] tbody tr:hover { background: #1a3530; }
+
+    tbody td {
+      padding: var(--space-sm) var(--space-md);
+      vertical-align: top;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px var(--space-sm);
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: var(--font-sans);
+      white-space: nowrap;
+    }
+    .badge-chosen { background: #d4ede8; color: var(--color-chosen); }
+    .badge-rejected { background: #eeeee8; color: #555550; }
+    .badge-interesting { background: #dce8f5; color: var(--color-interesting); }
+    .badge-stale { background: #fde8d0; color: var(--color-warning); }
+    .badge-na { background: #f0f0ec; color: #888; }
+
+    .complexity-low { color: #2a8a2a; font-weight: 600; }
+    .complexity-medium { color: #b87800; font-weight: 600; }
+    .complexity-high { color: #cc4400; font-weight: 600; }
+    .complexity-very-high { color: #cc0000; font-weight: 600; }
+
+    /* ── Callout boxes ── */
+    .callout {
+      border-left: 4px solid var(--color-accent);
+      background: var(--color-accent-light);
+      padding: var(--space-md) var(--space-lg);
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+      margin: var(--space-lg) 0;
+    }
+
+    .callout.warning {
+      border-color: var(--color-warning);
+      background: var(--color-warning-light);
+    }
+
+    .callout-title {
+      font-family: var(--font-sans);
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-accent);
+      margin-bottom: var(--space-xs);
+    }
+    .callout.warning .callout-title { color: var(--color-warning); }
+
+    /* ── Mermaid diagram container ── */
+    .diagram-wrap {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-xl);
+      margin: var(--space-md) 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+
+    /* ── Chart containers ── */
+    .chart-wrap {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-lg);
+      margin: var(--space-md) 0;
+      overflow-x: auto;
+    }
+
+    .chart-title {
+      font-family: var(--font-sans);
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      text-align: center;
+      margin-bottom: var(--space-md);
+    }
+
+    /* ── Tooltip ── */
+    .tooltip {
+      position: fixed;
+      background: rgba(20,20,24,0.92);
+      color: #f0f0ec;
+      padding: var(--space-sm) var(--space-md);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      pointer-events: none;
+      z-index: 1000;
+      max-width: 280px;
+      line-height: 1.5;
+      box-shadow: var(--shadow-lg);
+      transition: opacity var(--transition-speed);
+    }
+    .tooltip strong { color: #aaffd8; }
+    .tooltip em { color: #aad4ff; font-style: normal; }
+
+    /* ── File tree ── */
+    .file-tree {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.8;
+      background: #f0f0ec;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: var(--space-md) var(--space-lg);
+    }
+    [data-theme="dark"] .file-tree { background: #1e1e22; }
+
+    .file-tree .dir { color: var(--color-accent); font-weight: 600; }
+    .file-tree .file { color: var(--color-text); }
+    .file-tree .comment { color: var(--color-text-muted); font-family: var(--font-sans); font-size: 0.78rem; margin-left: var(--space-sm); }
+
+    /* ── Decision highlight ── */
+    .decision-row { background: #d4ede8 !important; }
+    [data-theme="dark"] .decision-row { background: #1a3530 !important; }
+
+    /* ── Risk list ── */
+    .risk-item {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-sm);
+      overflow: hidden;
+    }
+    .risk-item summary {
+      padding: var(--space-sm) var(--space-md);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      list-style: none;
+      transition: background var(--transition-speed);
+    }
+    .risk-item summary::-webkit-details-marker { display: none; }
+    .risk-item summary:hover { background: var(--color-accent-light); }
+    .risk-item[open] summary { background: var(--color-accent-light); }
+    .risk-item p { padding: var(--space-sm) var(--space-md) var(--space-md); font-size: 0.9rem; color: var(--color-text-muted); margin: 0; }
+    .risk-severity { font-size: 0.72rem; font-weight: 700; padding: 2px var(--space-xs); border-radius: var(--radius-sm); }
+    .risk-low { background: #d4ede8; color: var(--color-chosen); }
+    .risk-medium { background: #fff3cc; color: #b87000; }
+    .risk-high { background: #fde8d0; color: var(--color-warning); }
+
+    /* ── Sources ── */
+    .source-list {
+      list-style: none;
+      padding: 0;
+    }
+    .source-list li {
+      border-bottom: 1px solid var(--color-border);
+      padding: var(--space-sm) 0;
+      font-size: 0.88rem;
+    }
+    .source-list li:last-child { border-bottom: none; }
+    .source-num {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--color-accent);
+      margin-right: var(--space-sm);
+    }
+
+    hr { border: none; border-top: 1px solid var(--color-border); margin: var(--space-xl) 0; }
+
+    /* ── Footer ── */
+    footer {
+      max-width: var(--content-width);
+      margin: 0 auto var(--space-2xl);
+      padding: var(--space-xl) var(--space-lg) 0;
+      border-top: 1px solid var(--color-border);
+      font-family: var(--font-sans);
+      font-size: 0.82rem;
+      color: var(--color-text-muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div id="tooltip" class="tooltip" style="opacity:0;"></div>
+
+<!-- ── Page header ── -->
+<header class="page-header">
+  <div class="page-header-inner">
+    <span class="site-title">build123d · Architecture Report</span>
+    <button class="dark-toggle" id="darkToggle" onclick="toggleDark()">Toggle dark mode</button>
+  </div>
+</header>
+
+<!-- ── Article header ── -->
+<div class="article-header">
+  <h1>build123d → Blender Live Preview:<br>Architecture &amp; Alternatives</h1>
+  <div class="article-meta">
+    <span>March 2026</span>
+    <span>Platform: macOS ARM64 · Blender 5.0.1</span>
+    <span>Status: Implementation in progress</span>
+  </div>
+</div>
+
+<main>
+
+<!-- ═══════════════════════════════════════ 1. EXECUTIVE SUMMARY ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§1</span>
+      <h2>Executive Summary</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>
+      This document describes the architecture of a <strong>zero-button live preview system</strong>
+      for build123d CAD models in Blender. The goal is to eliminate the friction in a
+      Claude-assisted modeling workflow: Claude edits a <code>.py</code> source file, and the
+      resulting 3D mesh automatically appears — or updates — in a Blender viewport
+      without any manual intervention. Materials, transforms, and scene configuration
+      set by the user are preserved across every mesh update.
+    </p>
+    <p>
+      The chosen approach is a <strong>subprocess + STL file watcher</strong>: Blender runs a
+      Python script that polls the source file's modification time every 0.5 seconds.
+      When it detects a change, it spawns a subprocess using the system Python
+      (which has build123d installed in a venv), the subprocess exports the model to
+      <code>_preview.stl</code>, and Blender then imports the STL and applies the geometry
+      to an existing scene object via <code>mesh.clear_geometry() + mesh.from_pydata()</code>.
+      Seven alternative approaches were investigated and rejected; their tradeoffs are
+      documented here for posterity.
+    </p>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 2. ARCHITECTURE DIAGRAM ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§2</span>
+      <h2>Architecture Diagram</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>
+      The system is intentionally simple: a shell script launches Blender with a custom
+      Python watcher script, and from that point everything runs inside Blender's event loop.
+    </p>
+    <div class="diagram-wrap">
+      <div class="mermaid">
+flowchart TD
+    A["<b>User / Claude</b>\nEdits source.py"]:::external
+    B["<b>run.sh</b>\nDetects Blender + Python\nLaunches Blender with flags"]:::shell
+
+    subgraph blender ["Blender 5.0.1 Process"]
+      C["<b>blender_watcher.py</b>\nClears scene\nSets up CAD viewport\nOrthographic + studio lighting"]:::setup
+      D["<b>bpy.app.timers</b>\nPolls every 0.5s\nChecks source.py mtime"]:::timer
+      E{{"source.py\nchanged?"}}:::decision
+      F["<b>subprocess</b>\nsystem Python in venv\npython source.py"]:::subprocess
+      G["<b>_preview.stl</b>\nBinary STL written\nto working directory"]:::file
+      H["<b>bpy.ops.wm.stl_import()</b>\nBlender 5.0+ operator\nImports STL temporarily"]:::import
+      I["<b>mesh.clear_geometry()</b>\nClears verts/edges/faces\nPreserves material slots"]:::mesh
+      J["<b>mesh.from_pydata()</b>\nRebuild geometry\nfrom vertex/face lists"]:::mesh
+      K(["<b>Viewport updated</b>\nMaterials preserved\nTransforms preserved"]):::output
+    end
+
+    A -->|"file save"| B
+    B -->|"blender --factory-startup\n--python blender_watcher.py\n-- source.py"| C
+    C --> D
+    D --> E
+    E -->|"No"| D
+    E -->|"Yes"| F
+    F -->|"export_stl(shape,\n'_preview.stl')"| G
+    G --> H
+    H --> I
+    I --> J
+    J --> K
+    K -->|"resume polling"| D
+
+    classDef external fill:#e8f5f2,stroke:#1a7a6b,color:#1a7a6b
+    classDef shell fill:#f0f0ec,stroke:#888,color:#333
+    classDef setup fill:#dce8f5,stroke:#3a6ea8,color:#1a4a7a
+    classDef timer fill:#fff3e0,stroke:#b87800,color:#7a4e00
+    classDef decision fill:#fff8e8,stroke:#b87800,color:#7a4e00
+    classDef subprocess fill:#e8f5f2,stroke:#1a7a6b,color:#1a7a6b
+    classDef file fill:#f5f5f0,stroke:#aaa,color:#555
+    classDef import fill:#e0f0ff,stroke:#3a6ea8,color:#1a4a7a
+    classDef mesh fill:#e8f5f2,stroke:#1a7a6b,color:#1a7a6b
+    classDef output fill:#d4ede8,stroke:#1a7a6b,color:#0d4a3e,font-weight:bold
+      </div>
+    </div>
+    <p>
+      The Mermaid diagram above shows the complete data flow.
+      The green nodes represent the chosen integration path;
+      blue nodes are Blender-internal steps;
+      the amber diamond is the only conditional in the hot path.
+    </p>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 3. CHOSEN APPROACH ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§3</span>
+      <h2>The Chosen Approach: Subprocess + STL File Watcher</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+
+    <h3>Entry point: <code>run.sh</code></h3>
+    <p>
+      The shell script performs environment detection: it locates the Blender executable
+      (checked at <code>/Applications/Blender.app/Contents/MacOS/Blender</code>) and the
+      active Python venv. It then invokes Blender with three important flags:
+    </p>
+    <pre><code>blender --factory-startup \
+        --python blender_watcher.py \
+        -- source.py</code></pre>
+    <ul>
+      <li><code>--factory-startup</code>: launches with a clean default scene (no user preferences,
+        no saved UI state)</li>
+      <li><code>--python blender_watcher.py</code>: executes the watcher script immediately
+        on startup</li>
+      <li><code>-- source.py</code>: passes the model path to the script via
+        <code>sys.argv</code></li>
+    </ul>
+
+    <h3>Scene setup: <code>blender_watcher.py</code> (startup phase)</h3>
+    <p>
+      On load, the watcher script clears the default cube, camera, and light, then sets
+      up a CAD-appropriate viewport: orthographic projection, studio HDRI lighting
+      (or equivalent), and a neutral grey world background. This runs once. The script
+      then registers a timer callback and returns control to Blender's event loop.
+    </p>
+
+    <h3>Timer polling (the hot path)</h3>
+    <p>
+      <code>bpy.app.timers.register(check_fn, first_interval=0.5, persistent=True)</code>
+      schedules <code>check_fn</code> every 0.5 seconds. The function reads the source
+      file's <code>os.stat().st_mtime</code> and compares it to the last-seen mtime.
+      If unchanged, it returns <code>0.5</code> to reschedule. If changed, it proceeds
+      to the update path.
+    </p>
+    <div class="callout">
+      <div class="callout-title">Why mtime, not content hash?</div>
+      A known issue with CQ-editor's auto-reload (GitHub issue #280) is that it
+      "randomly stops working." CQ-editor uses <code>QFileSystemWatcher</code>, which
+      relies on OS file event delivery — an unreliable mechanism. Mtime polling is
+      simpler and cannot miss a change as long as the filesystem updates mtime on write
+      (which all relevant filesystems do).
+    </div>
+
+    <h3>Subprocess: building the STL</h3>
+    <p>
+      When a change is detected, Blender spawns a subprocess running the <strong>system
+      Python</strong> (the venv that has build123d installed), not Blender's embedded Python 3.11.
+      This is the key isolation boundary: build123d depends on <code>cadquery-ocp</code>,
+      a large C++ binary that cannot be installed into Blender's Python without risking
+      binary compatibility issues. The subprocess simply runs <code>source.py</code>, which
+      is expected to write <code>_preview.stl</code> in the working directory.
+    </p>
+
+    <h3>STL import and mesh update</h3>
+    <p>
+      Blender imports the STL using the modern operator:
+    </p>
+    <pre><code>bpy.ops.wm.stl_import(filepath="_preview.stl")</code></pre>
+    <div class="callout warning">
+      <div class="callout-title">Blender 5.0 API change</div>
+      The old operator <code>bpy.ops.import_mesh.stl()</code> was removed in Blender 4.1+.
+      The replacement <code>bpy.ops.wm.stl_import()</code> is a C++ rewrite, 3–10× faster,
+      and ships as a built-in (not an addon). Any version-safe wrapper must detect the
+      available operator at runtime.
+    </div>
+    <p>
+      After import, the script extracts vertices and faces from the temporary import
+      object, then updates the persistent preview object using:
+    </p>
+    <pre><code>preview_mesh.clear_geometry()
+preview_mesh.from_pydata(verts, [], faces)</code></pre>
+    <p>
+      The temporary import object and its datablock are then deleted to prevent orphan
+      data accumulation. On first run, the preview object is created; on subsequent runs,
+      only its geometry is replaced.
+    </p>
+
+    <h3>Why <code>clear_geometry() + from_pydata()</code> instead of datablock swap?</h3>
+    <p>
+      The obvious alternative — <code>obj.data = new_mesh</code> — does <em>not</em> preserve
+      material slots when the material link mode is <code>'DATA'</code> (the default in
+      Blender). Material assignments live on the datablock, so swapping the datablock
+      loses them. <code>clear_geometry()</code> clears only the geometry (vertices, edges,
+      faces) while leaving material slots intact. This has been the correct approach
+      since Blender 2.81.
+    </p>
+
+    <h3>Latency characteristics</h3>
+    <p>
+      The total round-trip time from file save to viewport update is approximately:
+    </p>
+    <ul>
+      <li>Mtime poll delay: 0 – 500 ms (average ~250 ms)</li>
+      <li>Subprocess startup + build123d import: ~300 – 800 ms (first run; subsequent
+        runs may be faster if Python caches imports)</li>
+      <li>STL export: ~50 – 200 ms depending on mesh complexity</li>
+      <li>Blender STL import + mesh update: ~50 – 150 ms</li>
+    </ul>
+    <p>
+      Total: <strong>~700 ms – 1.7 s</strong>. This is entirely acceptable for a
+      Claude-assisted workflow where the human conversation is the bottleneck, not mesh
+      transfer.
+    </p>
+
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 4. ALTERNATIVES TABLE ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§4</span>
+      <h2>Alternatives Investigated</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+
+    <p>
+      Nine approaches were evaluated. The table below summarizes all of them.
+      Click any column header to sort. The chosen approach is highlighted.
+    </p>
+
+    <div class="table-wrap">
+      <table id="altTable">
+        <thead>
+          <tr>
+            <th data-col="0">Approach<span class="sort-indicator"></span></th>
+            <th data-col="1">Architecture<span class="sort-indicator"></span></th>
+            <th data-col="2" data-numeric="true">Latency (ms)<span class="sort-indicator"></span></th>
+            <th data-col="3">Complexity<span class="sort-indicator"></span></th>
+            <th data-col="4">Dependencies<span class="sort-indicator"></span></th>
+            <th data-col="5">Preserves Materials<span class="sort-indicator"></span></th>
+            <th data-col="6">Status<span class="sort-indicator"></span></th>
+            <th data-col="7">Why Rejected / Chosen<span class="sort-indicator"></span></th>
+          </tr>
+        </thead>
+        <tbody id="altTableBody">
+          <!-- rows injected by JS -->
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 5. LATENCY CHART ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§5</span>
+      <h2>Latency Comparison</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>
+      The chart shows the estimated latency range for each approach, sorted fastest to slowest.
+      Hover over any bar for details. The chosen approach (Subprocess + STL) is shown in teal;
+      rejected approaches in gray; the not-applicable OCP-vscode approach in blue.
+    </p>
+    <div class="chart-wrap">
+      <div class="chart-title">Estimated Round-Trip Latency by Approach</div>
+      <svg id="latencyChart"></svg>
+    </div>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 6. SCATTER PLOT ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§6</span>
+      <h2>Complexity vs. Latency Tradeoff</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>
+      Each approach is plotted on a complexity (x-axis) vs. latency (y-axis, log scale)
+      tradeoff chart. The ideal region is low complexity and low latency (bottom-left).
+      Hover over any point for details. The chosen approach is shown in teal with a larger marker.
+    </p>
+    <div class="chart-wrap">
+      <div class="chart-title">Complexity vs. Latency — All Approaches</div>
+      <svg id="scatterChart"></svg>
+    </div>
+    <p style="font-size:0.82rem; color:var(--color-text-muted); margin-top:var(--space-sm);">
+      Complexity scale: 1 = trivial, 2 = low, 3 = medium, 4 = high, 5 = very high.
+      Latency axis is logarithmic. Point radius encodes relative appeal (larger = more appealing).
+    </p>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 7. FILE STRUCTURE ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§7</span>
+      <h2>File Structure</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>The planned layout of the dump, relative to the git repo root:</p>
+    <div class="file-tree">
+<span class="dir">build123d_tests/</span>
+├── <span class="file">run.sh</span>                    <span class="comment">Entry point: ./run.sh models/box.py</span>
+├── <span class="file">setup.sh</span>                  <span class="comment">WOM-proof install: venv + build123d</span>
+├── <span class="file">blender_watcher.py</span>        <span class="comment">Blender-side: scene setup + timer + mesh update</span>
+├── <span class="dir">models/</span>                    <span class="comment">User build123d model scripts</span>
+│   └── <span class="file">example_box.py</span>         <span class="comment">Simple sanity-check model</span>
+├── <span class="file">_preview.stl</span>              <span class="comment">Ephemeral: overwritten on each rebuild</span>
+├── <span class="dir">build123d/</span>                 <span class="comment">build123d source checkout (reference)</span>
+├── <span class="file">claude_instructions.md</span>    <span class="comment">Manifest / institutional memory</span>
+├── <span class="file">concerns.md</span>               <span class="comment">Research log + lessons learned</span>
+├── <span class="file">report.html</span>               <span class="comment">This document</span>
+└── <span class="dir">.claude_logs/</span>              <span class="comment">Log files (not committed)</span>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">Portability guarantee</div>
+      All paths inside the dump are relative to the git repo root. The dump must remain
+      runnable if moved or renamed. No absolute paths are embedded in scripts;
+      <code>run.sh</code> uses <code>$(dirname "$0")</code> to locate its siblings.
+    </div>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 8. SYSTEM REQUIREMENTS ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§8</span>
+      <h2>System Requirements</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>
+      Platform: macOS ARM64 (tested on Darwin 25.3.0, Apple Silicon).
+      Linux should work with path adjustments. Windows not tested.
+    </p>
+
+    <div class="table-wrap">
+      <table id="reqTable">
+        <thead>
+          <tr>
+            <th data-col="0">Dependency<span class="sort-indicator"></span></th>
+            <th data-col="1">Version<span class="sort-indicator"></span></th>
+            <th data-col="2">Install Command<span class="sort-indicator"></span></th>
+            <th data-col="3">Purpose<span class="sort-indicator"></span></th>
+            <th data-col="4">Notes<span class="sort-indicator"></span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Blender</strong></td>
+            <td>5.0+ (4.1+ minimum)</td>
+            <td><code>brew install --cask blender</code></td>
+            <td>3D viewport and Python host</td>
+            <td>Embedded Python 3.11.13; STL operator is <code>bpy.ops.wm.stl_import()</code></td>
+          </tr>
+          <tr>
+            <td><strong>Python</strong></td>
+            <td>3.10–3.13</td>
+            <td><code>brew install python@3.13</code></td>
+            <td>Runs build123d scripts</td>
+            <td>3.14 requires dev branch of build123d; 3.13 is safest</td>
+          </tr>
+          <tr>
+            <td><strong>build123d</strong></td>
+            <td>0.10.0+ (stable) or dev</td>
+            <td><code>pip install build123d</code><br>(or <code>pip install git+https://github.com/gumyr/build123d.git@dev</code> for Python 3.14)</td>
+            <td>CAD modeling library</td>
+            <td>Pulls in cadquery-ocp automatically</td>
+          </tr>
+          <tr>
+            <td><strong>cadquery-ocp</strong></td>
+            <td>7.8+</td>
+            <td>Auto-installed with build123d</td>
+            <td>OpenCASCADE Python bindings</td>
+            <td>ARM64 macOS wheels available on PyPI; no Rosetta needed</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Blender details (this machine)</h3>
+    <ul>
+      <li>Executable: <code>/Applications/Blender.app/Contents/MacOS/Blender</code></li>
+      <li>Version: 5.0.1</li>
+      <li>Embedded Python: 3.11.13</li>
+      <li>STL import operator: <code>bpy.ops.wm.stl_import()</code> (C++ rewrite, 3–10× faster)</li>
+      <li>No subprocess sandbox restrictions</li>
+    </ul>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 9. KNOWN RISKS ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§9</span>
+      <h2>Known Risks</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <p>Click each risk to expand the mitigation strategy.</p>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-medium">Medium</span> Python version mismatch</summary>
+      <p>
+        If the user upgrades Homebrew Python (e.g., from 3.13 → 3.14), the build123d venv
+        will break. <code>setup.sh</code> must detect the Python version and recreate the venv
+        if needed. The watcher script should fail loudly (non-zero subprocess exit) rather
+        than silently showing a stale or empty mesh.
+      </p>
+    </details>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-high">High</span> Blender API instability</summary>
+      <p>
+        The STL import operator already changed once: <code>bpy.ops.import_mesh.stl()</code>
+        was removed in Blender 4.1 and replaced with <code>bpy.ops.wm.stl_import()</code>.
+        The watcher script must include a version-safe wrapper that detects which operator
+        is available at runtime, rather than hardcoding one version.
+      </p>
+    </details>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-medium">Medium</span> Tessellation quality</summary>
+      <p>
+        The default STL export tolerances (<code>linear_tolerance=1e-3</code>,
+        <code>angular_tolerance=0.1</code>) may produce coarse meshes for small or
+        highly-curved geometry, or overly dense meshes for large flat geometry. These
+        should be configurable via command-line arguments passed through <code>run.sh</code>.
+      </p>
+    </details>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-low">Low</span> Large model performance</summary>
+      <p>
+        For complex assemblies (millions of triangles), STL export and reimport can be
+        slow. Not a concern for typical Claude-assisted modeling (simple parametric parts),
+        but worth noting for future use. The socket IPC approaches (Alternatives B, C, D)
+        would address this if it becomes a real constraint.
+      </p>
+    </details>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-low">Low</span> Orphan data accumulation in Blender</summary>
+      <p>
+        Every STL import creates a temporary mesh datablock and object. If not explicitly
+        deleted after copying geometry, Blender accumulates orphan datablocks (visible as
+        zero-user meshes in the outliner). The watcher script must call
+        <code>bpy.data.meshes.remove()</code> and <code>bpy.data.objects.remove()</code>
+        on the temporary import object after extracting its geometry.
+      </p>
+    </details>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-low">Low</span> CQ-editor reliability regression (reference)</summary>
+      <p>
+        CQ-editor's auto-reload "randomly stops working" (GitHub issue #280) because it
+        uses <code>QFileSystemWatcher</code>, which depends on OS file event delivery.
+        This project uses mtime polling instead, which is immune to this failure mode.
+        Documented here as rationale for the polling decision.
+      </p>
+    </details>
+
+    <details class="risk-item">
+      <summary><span class="risk-severity risk-medium">Medium</span> Subprocess output swallowed silently</summary>
+      <p>
+        If <code>source.py</code> raises an exception (build123d error, syntax error, etc.),
+        the subprocess exits non-zero. The watcher must capture and surface this output —
+        ideally print it to Blender's console and/or overlay it in the viewport — rather
+        than silently failing to update the mesh. Silent failure here would be confusing
+        and hard to debug.
+      </p>
+    </details>
+  </div>
+</details>
+
+<!-- ═══════════════════════════════════════ 10. SOURCES ═══ -->
+<details open>
+  <summary>
+    <div class="summary-title">
+      <span class="section-num">§10</span>
+      <h2>Sources Cited</h2>
+    </div>
+    <span class="chevron">▶</span>
+  </summary>
+  <div class="section-content">
+    <ul class="source-list">
+      <li>
+        <span class="source-num">[1]</span>
+        <strong>BlendQuery addon</strong> — build123d/CadQuery → Blender integration (stale, Jul 2024).
+        <a href="https://github.com/jdegenstein/BlendQuery" target="_blank">github.com/jdegenstein/BlendQuery</a>
+      </li>
+      <li>
+        <span class="source-num">[2]</span>
+        <strong>BlendQuery PR #13</strong> — Unmerged Blender 5.0 compatibility fix by petersupan.
+        <a href="https://github.com/jdegenstein/BlendQuery/pull/13" target="_blank">github.com/jdegenstein/BlendQuery/pull/13</a>
+      </li>
+      <li>
+        <span class="source-num">[3]</span>
+        <strong>build123d documentation</strong> — Export functions, <code>Shape.tessellate()</code> API.
+        <a href="https://build123d.readthedocs.io/" target="_blank">build123d.readthedocs.io</a>
+      </li>
+      <li>
+        <span class="source-num">[4]</span>
+        <strong>build123d GitHub</strong> — Source for <code>shape_core.py</code> tessellate method (line 2092)
+        and <code>mesher.py</code> mesh utilities (line 276).
+        <a href="https://github.com/gumyr/build123d" target="_blank">github.com/gumyr/build123d</a>
+      </li>
+      <li>
+        <span class="source-num">[5]</span>
+        <strong>Blender Python API — <code>bpy.app.timers</code></strong> — Timer registration and callback protocol.
+        <a href="https://docs.blender.org/api/current/bpy.app.timers.html" target="_blank">docs.blender.org/api/current/bpy.app.timers.html</a>
+      </li>
+      <li>
+        <span class="source-num">[6]</span>
+        <strong>Blender Python API — <code>Mesh.clear_geometry()</code></strong> — Clears geometry, preserves material slots since Blender 2.81.
+        <a href="https://docs.blender.org/api/current/bpy.types.Mesh.html#bpy.types.Mesh.clear_geometry" target="_blank">docs.blender.org</a>
+      </li>
+      <li>
+        <span class="source-num">[7]</span>
+        <strong>Blender Python API — <code>bpy.ops.wm.stl_import()</code></strong> — New STL import operator (Blender 4.1+).
+        <a href="https://docs.blender.org/api/current/bpy.ops.wm.html#bpy.ops.wm.stl_import" target="_blank">docs.blender.org</a>
+      </li>
+      <li>
+        <span class="source-num">[8]</span>
+        <strong>ocp-vscode</strong> — The dominant build123d viewer (VS Code extension + WebSocket + three.js).
+        <a href="https://github.com/bernhard-42/vscode-ocp-cad-viewer" target="_blank">github.com/bernhard-42/vscode-ocp-cad-viewer</a>
+      </li>
+      <li>
+        <span class="source-num">[9]</span>
+        <strong>blender-remote</strong> — JSON-RPC remote control for Blender.
+        <a href="https://github.com/blender-remote/blender-remote" target="_blank">github.com/blender-remote/blender-remote</a>
+      </li>
+      <li>
+        <span class="source-num">[10]</span>
+        <strong>Script Watcher addon</strong> — Reference implementation for file-watching pattern in Blender.
+        <a href="https://github.com/wisaac407/blender-script-watcher" target="_blank">github.com/wisaac407/blender-script-watcher</a>
+      </li>
+      <li>
+        <span class="source-num">[11]</span>
+        <strong>CQ-editor GitHub issue #280</strong> — Auto-reload randomly stops working.
+        <a href="https://github.com/CadQuery/CQ-editor/issues/280" target="_blank">github.com/CadQuery/CQ-editor/issues/280</a>
+      </li>
+      <li>
+        <span class="source-num">[12]</span>
+        <strong>Blender-ZMQ addon</strong> — ZeroMQ integration for robotics/mocap streaming.
+        <a href="https://github.com/njanakiev/blender-midi" target="_blank">github.com/njanakiev/blender-midi</a> (reference)
+      </li>
+    </ul>
+  </div>
+</details>
+
+</main>
+
+<footer>
+  build123d → Blender Live Preview · Architecture Report · March 2026
+</footer>
+
+<script>
+// ── Dark mode ────────────────────────────────────────────────────────
+function toggleDark() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  localStorage.setItem('theme', isDark ? 'light' : 'dark');
+}
+(function() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+
+// ── Mermaid ──────────────────────────────────────────────────────────
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'neutral',
+  fontFamily: 'Georgia, serif',
+  flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' }
+});
+
+// ── Tooltip ──────────────────────────────────────────────────────────
+const tooltip = document.getElementById('tooltip');
+function showTooltip(event, html) {
+  tooltip.innerHTML = html;
+  tooltip.style.opacity = '1';
+  moveTooltip(event);
+}
+function moveTooltip(event) {
+  const margin = 14;
+  const tw = tooltip.offsetWidth;
+  const th = tooltip.offsetHeight;
+  let x = event.clientX + margin;
+  let y = event.clientY - th / 2;
+  if (x + tw > window.innerWidth - margin) x = event.clientX - tw - margin;
+  if (y < margin) y = margin;
+  if (y + th > window.innerHeight - margin) y = window.innerHeight - th - margin;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+}
+function hideTooltip() { tooltip.style.opacity = '0'; }
+document.addEventListener('mousemove', e => {
+  if (tooltip.style.opacity === '1') moveTooltip(e);
+});
+
+// ── Alternatives data ─────────────────────────────────────────────────
+const APPROACHES = [
+  {
+    id: 'A',
+    name: 'Subprocess + STL File Watcher',
+    arch: 'run.sh → Blender → mtime poll → subprocess → _preview.stl → clear_geometry() + from_pydata()',
+    latencyMin: 700,
+    latencyMax: 1700,
+    latencyLabel: '700–1700',
+    complexityScore: 2,
+    complexity: 'Low',
+    deps: 'None (stdlib only)',
+    materials: 'Yes',
+    status: 'chosen',
+    statusLabel: 'Chosen',
+    reason: 'Best balance of simplicity, debuggability, and latency for Claude-driven workflow. STL is a natural debugging checkpoint.',
+    tooltip: 'The chosen approach. Clean subprocess isolation avoids OCP↔Blender conflicts. Latency of ~1s is fine when human conversation is the bottleneck.'
+  },
+  {
+    id: 'B',
+    name: 'BlendQuery addon',
+    arch: 'Subprocess + pickle IPC + from_pydata()',
+    latencyMin: 100,
+    latencyMax: 300,
+    latencyLabel: '100–300',
+    complexityScore: 3,
+    complexity: 'Medium',
+    deps: 'BlendQuery addon',
+    materials: 'Yes (name matching)',
+    status: 'stale',
+    statusLabel: 'Stale',
+    reason: 'Broken on Blender 5.0.1. Unmerged fix PR. Hardcoded tolerances, no normals, no assembly locations. Would require forking.',
+    tooltip: 'The only existing direct build123d→Blender integration. Sound architecture but stale (Jul 2024). Broken on our Blender version with no official fix.'
+  },
+  {
+    id: 'C',
+    name: 'Socket IPC (raw bytes TCP)',
+    arch: 'Tessellate → serialize numpy arrays → TCP socket → Blender addon → foreach_set()',
+    latencyMin: 20,
+    latencyMax: 70,
+    latencyLabel: '20–70',
+    complexityScore: 4,
+    complexity: 'High',
+    deps: 'None (stdlib sockets)',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Overkill for Claude-driven workflow. Human conversation latency dominates. Adds custom protocol complexity with no natural debugging checkpoint.',
+    tooltip: 'Fastest IPC approach. foreach_set() is Blender\'s high-performance mesh update API. Rejected as premature optimization.'
+  },
+  {
+    id: 'D',
+    name: 'Socket IPC (JSON-RPC / blender-remote)',
+    arch: 'pip install blender-remote → execute_python() calls over WebSocket',
+    latencyMin: 50,
+    latencyMax: 150,
+    latencyLabel: '50–150',
+    complexityScore: 3,
+    complexity: 'Medium',
+    deps: 'blender-remote pip package',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Adds external pip dependency for what is essentially a socket wrapper around Python execution.',
+    tooltip: 'Active project. Essentially wraps Python execution over WebSocket. Clean API but adds a dependency we don\'t need.'
+  },
+  {
+    id: 'E',
+    name: 'Shared Memory',
+    arch: 'multiprocessing.shared_memory → NumPy arrays → Blender reads directly',
+    latencyMin: 1,
+    latencyMax: 10,
+    latencyLabel: '1–10',
+    complexityScore: 5,
+    complexity: 'Very High',
+    deps: 'None (stdlib)',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Extreme overkill. Only makes sense for millions of vertices per frame (real-time simulation). Requires careful synchronization.',
+    tooltip: 'Theoretically lowest latency. Shared memory avoids all serialization. Completely unnecessary for a CAD preview tool.'
+  },
+  {
+    id: 'F',
+    name: 'pip install bpy (Blender as Python module)',
+    arch: 'Single Python process with both build123d and bpy — no IPC at all',
+    latencyMin: 5,
+    latencyMax: 20,
+    latencyLabel: '5–20',
+    complexityScore: 3,
+    complexity: 'Medium (setup: High)',
+    deps: 'bpy wheel (exact Python version match)',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Requires exact Python version match between OCP wheels and bpy wheels. Version coupling breaks on any Blender or Python upgrade.',
+    tooltip: 'Elegant idea: one process, no IPC. Fatal flaw: OCP and bpy must be built against the same Python version. This is a maintenance nightmare.'
+  },
+  {
+    id: 'G',
+    name: 'Embed build123d in Blender Python',
+    arch: 'Install OCP/build123d into Blender\'s bundled Python 3.11',
+    latencyMin: 5,
+    latencyMax: 20,
+    latencyLabel: '5–20',
+    complexityScore: 3,
+    complexity: 'Medium',
+    deps: 'OCP wheels for Blender Python 3.11',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Fragile across Blender updates. OCP binary compatibility issues with Blender\'s Python. BlendQuery does this via its venv system — and it broke.',
+    tooltip: 'BlendQuery uses this approach with an isolated venv. It works in theory but breaks when Blender updates its Python version.'
+  },
+  {
+    id: 'H',
+    name: 'Named Pipes / Unix Domain Sockets',
+    arch: 'Same as TCP sockets but using filesystem paths',
+    latencyMin: 15,
+    latencyMax: 60,
+    latencyLabel: '15–60',
+    complexityScore: 4,
+    complexity: 'High',
+    deps: 'None (stdlib)',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Marginal latency improvement over TCP with identical complexity. Adds no real benefit over the simpler STL file approach.',
+    tooltip: 'Lower system call overhead than TCP on localhost, but same implementation complexity. Not worth it over the file-based approach.'
+  },
+  {
+    id: 'I',
+    name: 'ZeroMQ (Blender-ZMQ addon)',
+    arch: 'Pub/sub with zmq.Poller() + Blender timers',
+    latencyMin: 15,
+    latencyMax: 50,
+    latencyLabel: '15–50',
+    complexityScore: 3,
+    complexity: 'Medium',
+    deps: 'pyzmq',
+    materials: 'Yes',
+    status: 'rejected',
+    statusLabel: 'Rejected',
+    reason: 'Adds pyzmq dependency. Designed for continuous streaming (robotics, mocap), not one-shot mesh updates. Overkill.',
+    tooltip: 'Existing addon used in robotics/mocap workflows. Pub/sub is wrong model for our use case — we want request/response, not streaming.'
+  },
+  {
+    id: 'J',
+    name: 'OCP-vscode (not Blender-based)',
+    arch: 'VS Code extension + WebSocket server + three.js 3D viewer',
+    latencyMin: 50,
+    latencyMax: 200,
+    latencyLabel: '50–200',
+    complexityScore: 1,
+    complexity: 'Low',
+    deps: 'VS Code, ocp_vscode package',
+    materials: 'N/A (different viewer)',
+    status: 'na',
+    statusLabel: 'Not applicable',
+    reason: 'The dominant build123d viewer. Not applicable: user specifically wants Blender for its rendering, materials, and modifier pipeline.',
+    tooltip: 'What most build123d users actually use. Excellent tool, but the whole point of this project is Blender-based preview.'
+  }
+];
+
+// ── Render alternatives table ─────────────────────────────────────────
+function complexityClass(c) {
+  if (c.includes('Very')) return 'complexity-very-high';
+  if (c.includes('High')) return 'complexity-high';
+  if (c.includes('Medium')) return 'complexity-medium';
+  return 'complexity-low';
+}
+
+function statusBadge(status, label) {
+  const cls = {
+    chosen: 'badge-chosen',
+    stale: 'badge-stale',
+    rejected: 'badge-rejected',
+    na: 'badge-na',
+    interesting: 'badge-interesting'
+  }[status] || 'badge-rejected';
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function renderAltTable() {
+  const tbody = document.getElementById('altTableBody');
+  tbody.innerHTML = APPROACHES.map(a => `
+    <tr class="${a.status === 'chosen' ? 'decision-row' : ''}">
+      <td><strong>${a.id}. ${a.name}</strong></td>
+      <td style="font-size:0.82rem;color:var(--color-text-muted)">${a.arch}</td>
+      <td data-sort="${a.latencyMin}" style="white-space:nowrap">${a.latencyLabel} ms</td>
+      <td><span class="${complexityClass(a.complexity)}">${a.complexity}</span></td>
+      <td style="font-size:0.82rem">${a.deps}</td>
+      <td>${a.materials}</td>
+      <td>${statusBadge(a.status, a.statusLabel)}</td>
+      <td style="font-size:0.82rem">${a.reason}</td>
+    </tr>
+  `).join('');
+}
+
+renderAltTable();
+
+// ── Sortable tables ───────────────────────────────────────────────────
+function makeTableSortable(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const headers = table.querySelectorAll('thead th');
+  let sortCol = -1, sortAsc = true;
+  headers.forEach((th, i) => {
+    th.addEventListener('click', () => {
+      const isNumeric = th.dataset.numeric === 'true';
+      if (sortCol === i) {
+        sortAsc = !sortAsc;
+      } else {
+        sortCol = i;
+        sortAsc = true;
+      }
+      headers.forEach(h => { h.classList.remove('sorted-asc', 'sorted-desc'); });
+      th.classList.add(sortAsc ? 'sorted-asc' : 'sorted-desc');
+
+      const tbody = table.querySelector('tbody');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((a, b) => {
+        const ac = a.cells[i];
+        const bc = b.cells[i];
+        let av = ac.dataset.sort ?? ac.textContent.trim();
+        let bv = bc.dataset.sort ?? bc.textContent.trim();
+        if (isNumeric || !isNaN(parseFloat(av))) {
+          av = parseFloat(av) || 0;
+          bv = parseFloat(bv) || 0;
+          return sortAsc ? av - bv : bv - av;
+        }
+        return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+      });
+      rows.forEach(r => tbody.appendChild(r));
+    });
+  });
+}
+
+makeTableSortable('altTable');
+makeTableSortable('reqTable');
+
+// ── Latency bar chart (D3) ────────────────────────────────────────────
+function renderLatencyChart() {
+  const sorted = [...APPROACHES].sort((a, b) => a.latencyMin - b.latencyMin);
+
+  const margin = { top: 20, right: 160, bottom: 50, left: 250 };
+  const containerW = Math.min(document.querySelector('#latencyChart').parentElement.offsetWidth, 900);
+  const width = containerW - margin.left - margin.right;
+  const rowH = 34;
+  const height = sorted.length * rowH;
+
+  const svg = d3.select('#latencyChart')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const maxLatency = d3.max(sorted, d => d.latencyMax);
+  const xScale = d3.scaleLog()
+    .domain([0.8, maxLatency * 1.4])
+    .range([0, width]);
+
+  const yScale = d3.scaleBand()
+    .domain(sorted.map(d => d.id + '. ' + d.name))
+    .range([0, height])
+    .padding(0.25);
+
+  const colorMap = {
+    chosen: '#1a7a6b',
+    na: '#3a6ea8',
+    stale: '#b85c00',
+    rejected: '#aaaaaa',
+    interesting: '#3a6ea8'
+  };
+
+  // Grid lines
+  const xTicks = [1, 5, 10, 50, 100, 500, 1000, 2000];
+  g.selectAll('.grid-line')
+    .data(xTicks)
+    .enter().append('line')
+    .attr('class', 'grid-line')
+    .attr('x1', d => xScale(d))
+    .attr('x2', d => xScale(d))
+    .attr('y1', 0)
+    .attr('y2', height)
+    .attr('stroke', '#e2e2dc')
+    .attr('stroke-dasharray', '3,3');
+
+  // Range bars
+  g.selectAll('.bar-range')
+    .data(sorted)
+    .enter().append('rect')
+    .attr('class', 'bar-range')
+    .attr('x', d => xScale(Math.max(0.9, d.latencyMin)))
+    .attr('y', d => yScale(d.id + '. ' + d.name))
+    .attr('height', yScale.bandwidth())
+    .attr('width', d => Math.max(4, xScale(d.latencyMax) - xScale(Math.max(0.9, d.latencyMin))))
+    .attr('fill', d => colorMap[d.status] || '#aaa')
+    .attr('opacity', 0.2)
+    .attr('rx', 3);
+
+  // Min marker
+  g.selectAll('.bar-min')
+    .data(sorted)
+    .enter().append('rect')
+    .attr('x', d => xScale(Math.max(0.9, d.latencyMin)))
+    .attr('y', d => yScale(d.id + '. ' + d.name) + yScale.bandwidth() * 0.15)
+    .attr('height', yScale.bandwidth() * 0.7)
+    .attr('width', 6)
+    .attr('fill', d => colorMap[d.status] || '#aaa')
+    .attr('rx', 2);
+
+  // Max marker
+  g.selectAll('.bar-max')
+    .data(sorted)
+    .enter().append('rect')
+    .attr('x', d => xScale(d.latencyMax) - 6)
+    .attr('y', d => yScale(d.id + '. ' + d.name) + yScale.bandwidth() * 0.15)
+    .attr('height', yScale.bandwidth() * 0.7)
+    .attr('width', 6)
+    .attr('fill', d => colorMap[d.status] || '#aaa')
+    .attr('rx', 2);
+
+  // Connector line
+  g.selectAll('.bar-line')
+    .data(sorted)
+    .enter().append('line')
+    .attr('x1', d => xScale(Math.max(0.9, d.latencyMin)) + 6)
+    .attr('x2', d => xScale(d.latencyMax) - 6)
+    .attr('y1', d => yScale(d.id + '. ' + d.name) + yScale.bandwidth() / 2)
+    .attr('y2', d => yScale(d.id + '. ' + d.name) + yScale.bandwidth() / 2)
+    .attr('stroke', d => colorMap[d.status] || '#aaa')
+    .attr('stroke-width', 2);
+
+  // Latency label
+  g.selectAll('.latency-label')
+    .data(sorted)
+    .enter().append('text')
+    .attr('x', d => xScale(d.latencyMax) + 8)
+    .attr('y', d => yScale(d.id + '. ' + d.name) + yScale.bandwidth() / 2 + 4)
+    .attr('fill', d => colorMap[d.status] || '#aaa')
+    .attr('font-family', 'var(--font-sans)')
+    .attr('font-size', '11px')
+    .attr('font-weight', d => d.status === 'chosen' ? '700' : '400')
+    .text(d => d.latencyLabel + ' ms');
+
+  // Hit areas for tooltip
+  g.selectAll('.hit-area')
+    .data(sorted)
+    .enter().append('rect')
+    .attr('x', 0)
+    .attr('y', d => yScale(d.id + '. ' + d.name))
+    .attr('width', width + 160)
+    .attr('height', yScale.bandwidth())
+    .attr('fill', 'transparent')
+    .on('mouseover', (event, d) => {
+      showTooltip(event, `<strong>${d.id}. ${d.name}</strong><br><em>${d.latencyLabel} ms</em><br>${d.tooltip}`);
+    })
+    .on('mouseout', hideTooltip);
+
+  // Y axis
+  const yAxis = d3.axisLeft(yScale).tickSize(0).tickPadding(8);
+  const yAxisG = g.append('g').call(yAxis);
+  yAxisG.select('.domain').remove();
+  yAxisG.selectAll('text')
+    .style('font-family', 'var(--font-sans)')
+    .style('font-size', '12px')
+    .style('fill', 'var(--color-text)')
+    .call(wrapText, margin.left - 12);
+
+  // X axis (log)
+  const xAxis = d3.axisBottom(xScale)
+    .tickValues(xTicks)
+    .tickFormat(d => d + ' ms');
+  g.append('g')
+    .attr('transform', `translate(0,${height})`)
+    .call(xAxis)
+    .selectAll('text')
+    .style('font-family', 'var(--font-sans)')
+    .style('font-size', '11px')
+    .style('fill', 'var(--color-text-muted)');
+
+  // Legend
+  const legendData = [
+    { label: 'Chosen', color: '#1a7a6b' },
+    { label: 'Rejected', color: '#aaaaaa' },
+    { label: 'Stale', color: '#b85c00' },
+    { label: 'N/A', color: '#3a6ea8' }
+  ];
+  const legendG = svg.append('g').attr('transform', `translate(${margin.left},${height + margin.top + 30})`);
+  legendData.forEach((item, i) => {
+    const x = i * 120;
+    legendG.append('rect').attr('x', x).attr('y', 0).attr('width', 12).attr('height', 12).attr('fill', item.color).attr('rx', 2);
+    legendG.append('text').attr('x', x + 16).attr('y', 10).attr('font-family', 'var(--font-sans)').attr('font-size', '11px').attr('fill', 'var(--color-text-muted)').text(item.label);
+  });
+}
+
+function wrapText(selection, maxWidth) {
+  selection.each(function() {
+    const text = d3.select(this);
+    const words = text.text().split(/\s+/);
+    if (words.length <= 3) return; // short enough
+    // Just truncate with ellipsis if too long
+    let full = text.text();
+    if (full.length > 32) {
+      text.text(full.slice(0, 30) + '…');
+    }
+  });
+}
+
+// ── Scatter plot (D3) ────────────────────────────────────────────────
+function renderScatterChart() {
+  const margin = { top: 30, right: 40, bottom: 60, left: 70 };
+  const containerW = Math.min(document.querySelector('#scatterChart').parentElement.offsetWidth, 900);
+  const width = containerW - margin.left - margin.right;
+  const height = 380 - margin.top - margin.bottom;
+
+  const svg = d3.select('#scatterChart')
+    .attr('width', width + margin.left + margin.right)
+    .attr('height', height + margin.top + margin.bottom);
+
+  const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  const midLatency = APPROACHES.map(d => ({
+    ...d,
+    latencyMid: (d.latencyMin + d.latencyMax) / 2
+  }));
+
+  const xScale = d3.scaleLinear().domain([0.5, 5.5]).range([0, width]);
+  const yScale = d3.scaleLog().domain([0.5, 3000]).range([height, 0]);
+
+  const colorMap = {
+    chosen: '#1a7a6b',
+    na: '#3a6ea8',
+    stale: '#b85c00',
+    rejected: '#aaaaaa',
+    interesting: '#3a6ea8'
+  };
+
+  // Grid
+  [1,2,3,4,5].forEach(x => {
+    g.append('line').attr('x1', xScale(x)).attr('x2', xScale(x)).attr('y1', 0).attr('y2', height)
+      .attr('stroke', '#e2e2dc').attr('stroke-dasharray', '3,3');
+  });
+  [1, 5, 10, 50, 100, 500, 1000, 2000].forEach(y => {
+    g.append('line').attr('x1', 0).attr('x2', width).attr('y1', yScale(y)).attr('y2', yScale(y))
+      .attr('stroke', '#e2e2dc').attr('stroke-dasharray', '3,3');
+  });
+
+  // "Ideal" region annotation
+  g.append('rect')
+    .attr('x', xScale(0.5)).attr('y', yScale(100))
+    .attr('width', xScale(2.5) - xScale(0.5)).attr('height', yScale(0.5) - yScale(100))
+    .attr('fill', '#1a7a6b').attr('opacity', 0.04).attr('rx', 4);
+  g.append('text')
+    .attr('x', xScale(1.5)).attr('y', yScale(80))
+    .attr('text-anchor', 'middle').attr('font-family', 'var(--font-sans)').attr('font-size', '10px')
+    .attr('fill', '#1a7a6b').attr('opacity', 0.6).text('Ideal region');
+
+  // Points
+  g.selectAll('.scatter-point')
+    .data(midLatency)
+    .enter().append('circle')
+    .attr('cx', d => xScale(d.complexityScore))
+    .attr('cy', d => yScale(Math.max(0.6, d.latencyMid)))
+    .attr('r', d => d.status === 'chosen' ? 14 : 9)
+    .attr('fill', d => colorMap[d.status] || '#aaa')
+    .attr('opacity', d => d.status === 'chosen' ? 0.9 : 0.6)
+    .attr('stroke', d => d.status === 'chosen' ? '#0d4a3e' : 'none')
+    .attr('stroke-width', 2)
+    .on('mouseover', (event, d) => {
+      showTooltip(event, `<strong>${d.id}. ${d.name}</strong><br><em>Complexity: ${d.complexityScore}/5 · Latency: ${d.latencyLabel} ms</em><br>${d.tooltip}`);
+    })
+    .on('mouseout', hideTooltip);
+
+  // Labels
+  const labelOffsets = {
+    'A': [14, -4],
+    'B': [10, -10],
+    'C': [-12, -12],
+    'D': [10, 12],
+    'E': [10, 5],
+    'F': [-12, 14],
+    'G': [10, -10],
+    'H': [-32, -10],
+    'I': [10, 12],
+    'J': [10, -8]
+  };
+  g.selectAll('.scatter-label')
+    .data(midLatency)
+    .enter().append('text')
+    .attr('x', d => xScale(d.complexityScore) + (labelOffsets[d.id]?.[0] ?? 10))
+    .attr('y', d => yScale(Math.max(0.6, d.latencyMid)) + (labelOffsets[d.id]?.[1] ?? 0))
+    .attr('font-family', 'var(--font-sans)')
+    .attr('font-size', d => d.status === 'chosen' ? '12px' : '10px')
+    .attr('font-weight', d => d.status === 'chosen' ? '700' : '400')
+    .attr('fill', d => colorMap[d.status] || '#aaa')
+    .text(d => d.id);
+
+  // Axes
+  const xAxis = d3.axisBottom(xScale)
+    .tickValues([1,2,3,4,5])
+    .tickFormat(d => ['', 'Trivial', 'Low', 'Medium', 'High', 'Very High'][d]);
+  g.append('g').attr('transform', `translate(0,${height})`).call(xAxis)
+    .selectAll('text').style('font-family', 'var(--font-sans)').style('font-size', '11px').style('fill', 'var(--color-text-muted)');
+
+  const yAxis = d3.axisLeft(yScale)
+    .tickValues([1, 10, 100, 1000])
+    .tickFormat(d => d + ' ms');
+  g.append('g').call(yAxis)
+    .selectAll('text').style('font-family', 'var(--font-sans)').style('font-size', '11px').style('fill', 'var(--color-text-muted)');
+
+  // Axis labels
+  g.append('text')
+    .attr('x', width / 2).attr('y', height + 48)
+    .attr('text-anchor', 'middle').attr('font-family', 'var(--font-sans)').attr('font-size', '12px')
+    .attr('fill', 'var(--color-text-muted)').text('Implementation Complexity →');
+
+  g.append('text')
+    .attr('transform', 'rotate(-90)')
+    .attr('x', -height / 2).attr('y', -52)
+    .attr('text-anchor', 'middle').attr('font-family', 'var(--font-sans)').attr('font-size', '12px')
+    .attr('fill', 'var(--color-text-muted)').text('Latency (log scale) →');
+}
+
+// Render charts after DOM + Mermaid are ready
+window.addEventListener('load', () => {
+  renderLatencyChart();
+  renderScatterChart();
+});
+</script>
+
+</body>
+</html>
