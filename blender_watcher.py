@@ -801,6 +801,7 @@ def _build_panel_classes(sections):
     def draw_panel(self, context):
         """Command, general. Draw panel layout from section definitions."""
         layout = self.layout
+        props = context.scene.build123d_props
 
         # Preset dropdown + reset
         if _presets:
@@ -809,8 +810,6 @@ def _build_panel_classes(sections):
             row.operator("build123d.reset_defaults", text="", icon="LOOP_BACK")
         else:
             layout.operator("build123d.reset_defaults", icon="LOOP_BACK")
-
-        props = context.scene.build123d_props
 
         for section in _sections:
             box = layout.box()
