@@ -2,7 +2,7 @@
 
 Parametric brick modeling with [build123d](https://github.com/gumyr/build123d) and real-time Blender viewport preview. Edit parameters in Blender's sidebar panel — the mesh updates live.
 
-Two brick systems with different clutch mechanisms: **Clara** (diagonal lattice) and **LEGO** (cylindrical tubes).
+Unified brick system with selectable clutch mechanism: **LATTICE** (diagonal struts), **TUBE** (LEGO-style cylinders), or **NONE** (hollow). Also supports cross-shaped bricks (L/T/+) and 4-directional slopes.
 
 <p align="center">
   <img src="docs/images/clara_2x4.png" width="280" alt="Clara 2x4 brick — diagonal lattice clutch">
@@ -64,11 +64,11 @@ Rebuild time: ~0.9s steady-state (vs ~2.5s cold start) thanks to the persistent 
 git clone --recurse-submodules <repo-url>
 cd build123d_tests
 
-# Launch with Clara brick (default)
+# Launch with default brick (Clara Mini)
 ./run.sh
 
-# Launch with LEGO brick
-./run.sh models/bricks/lego/lego.py
+# Launch with a specific model
+./run.sh models/bricks/brick.py
 ```
 
 Blender opens with a **build123d** sidebar panel (press `N` if hidden). Adjust sliders to explore parameter space. The mesh rebuilds automatically.
@@ -77,39 +77,48 @@ Blender opens with a **build123d** sidebar panel (press `N` if hidden). Adjust s
 
 ```bash
 # Render 14-angle diagnostic views
-./render.sh models/bricks/clara/clara.py
+./render.sh models/bricks/brick.py
 
 # Output: renders/<model>/iso_fr.png, top.png, bottom.png, etc.
 ```
 
 ## Features
 
-### Two Brick Systems
+### Clutch Types
 
-| System | Clutch | Description |
-|--------|--------|-------------|
-| **Clara** | Diagonal lattice | ±45° crisscross struts. 3D-print friendly (no overhangs). Diamond openings fit studs exactly (tangent contact). |
-| **LEGO** | Tubes + ridges | Standard cylindrical anti-stud tubes. Ridge rail for 1-wide bricks. |
+| Type | Description |
+|------|-------------|
+| **LATTICE** | ±45° crisscross struts. 3D-print friendly (no overhangs). Diamond openings fit studs exactly (tangent contact). |
+| **TUBE** | Standard LEGO cylindrical anti-stud tubes + ridge rail for 1-wide bricks. |
+| **NONE** | Hollow shell, no internal features. |
 
-### Clara-Specific Features
+### Shapes
+
+- **Rectangle**: Standard rectangular bricks (1x1 to 8x16+)
+- **Cross**: L-shaped, T-shaped, and + shaped bricks via directional arm parameters
+
+### 3D Printing Features (all clutch types)
 
 - **Corner radius**: 2D rounding of the brick outline (like CSS `border-radius`)
-- **Wall taper**: Top portion of walls slopes inward. LINEAR (straight) or CURVED (quarter-circle)
+- **Wall taper**: Top portion of walls slopes inward. LINEAR or CURVED (quarter-circle)
 - **Stud taper**: Top of studs tapers inward. Same LINEAR/CURVED options
-- **Presets**: Mini Brick (small scale), Mini Slope, LEGO Standard dimensions
 
-### Shared Features
+### 4-Directional Slopes
 
-- **Slope bricks**: Wedge with configurable flat rows
-- **Fillet/Chamfer**: Rounded or straight 45° bevels on all edges. Bottom edge toggle for 3D printing. Skip concave toggle for exterior-only rounding
+- Independent slope controls for +X, -X, +Y, -Y
+- Multiple slopes simultaneously for corner roof / pyramid shapes
+- Works on both rectangle and cross shapes
+
+### Other Features
+
+- **Fillet/Chamfer**: Rounded or straight 45° bevels on all edges. Bottom edge toggle. Skip concave toggle.
 - **Stud text**: Raised embossed text ("CLARA" / "LEGO") with configurable font, size, rotation
-- **Anatomy highlight**: Viewport coloring by brick region (studs, deck, walls, lattice, tubes) for learning and debugging
+- **Presets**: Clara Mini, LEGO Standard, Clara Mini Slope, LEGO Slope, Hollow
+- **Anatomy highlight**: Viewport coloring by brick region (studs, deck, walls, lattice, tubes)
 
 ### Blender Panel
 
-Data-driven panel generated from `panel_def.py`. Each brick system defines its own sections, presets, and parameters. The panel infrastructure in `blender_watcher.py` reads these definitions and auto-generates Blender PropertyGroups + Panel UI.
-
-Toggleable sections (fillet, text, slope, taper) use the `enable_key` pattern — checkbox in the section header collapses/expands the section.
+Data-driven panel generated from `panel_def.py`. One unified panel for all brick types. Clutch type, shape mode, and presets as dropdowns. Toggleable sections (fillet, text, slope, taper) use the `enable_key` pattern.
 
 ## Architecture
 
@@ -125,16 +134,13 @@ build123d_tests/
       common.py             # Shared constants + bevel_above_z helper
       panel_common.py       # Shared panel sections (Walls, Text, Fillet) + anatomy
       parametric_base.py    # Override application + worker interface
-      lego/
-        lego_lib.py         # lego_brick(), lego_slope()
-        parametric.py       # LEGO worker: _build() + overrides
-        panel_def.py        # LEGO panel params (includes Internals section)
-      clara/
-        clara_lib.py        # clara_brick(), clara_slope()
-        parametric.py       # Clara worker: _build() + config
-        panel_def.py        # Clara panel params (presets, 3D printing features)
-        tests/
-          test_clara_lattice.py  # 7 geometry verification tests
+      brick_lib.py          # Unified geometry: brick(), slope(), cross shapes, all clutch types
+      parametric.py         # Unified worker: _build() + overrides
+      panel_def.py          # Unified panel sections + presets
+      brick.py              # Default entry point
+      collection.py         # Display grid of various brick types
+      tests/
+        test_lattice.py     # 7 lattice geometry verification tests
   build123d/                # Library (git submodule, dev branch)
 ```
 
@@ -159,10 +165,10 @@ Clara adds a lattice step: 2D rectangles at ±45° via `Locations([Pos * Rot])`,
 ## Tests
 
 ```bash
-# Run Clara lattice geometry tests
-uv run models/bricks/clara/tests/test_clara_lattice.py
+# Run lattice geometry tests
+uv run models/bricks/tests/test_lattice.py
 
-# Build all brick configurations (renders to STL)
+# Build all brick configurations (18 configs)
 uv run scratchpad.py
 ```
 

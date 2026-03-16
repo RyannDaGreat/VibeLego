@@ -140,30 +140,24 @@ run.sh <model.py>
 
 ```
 build123d_tests/
-  run.sh                    # Entry point: ./run.sh models/bricks/lego/lego.py
+  run.sh                    # Entry point: ./run.sh models/bricks/brick.py
   blender_watcher.py        # Blender-side script (watches + reimports)
   render_preview.py         # Headless Blender render: STL -> multi-angle PNGs
   render.sh                 # Convenience wrapper for render_preview.py
   build_worker.py           # Persistent build subprocess (keeps build123d imported)
   models/                   # All build123d model scripts
     example_box.py          # Simple example: box with cylindrical hole
-    bricks/                 # Brick systems (LEGO + Clara)
-      common.py             # Shared constants + bevel_above_z (both systems)
+    bricks/                 # Unified brick system
+      common.py             # Shared constants + bevel_above_z
       panel_common.py       # Shared panel sections (Walls, Text, Fillet) + anatomy classification
       parametric_base.py    # Shared override application + worker interface (run, apply_overrides)
-      lego/                 # LEGO brick system (tube-based clutch)
-        lego_lib.py         # lego_brick(), lego_slope() — pure geometry
-        lego.py             # Default entry point for ./run.sh
-        parametric.py       # Worker interface: _build() + LEGO-specific overrides
-        panel_def.py        # LEGO panel params (imports shared + adds Internals section)
-        collection.py       # All LEGO types in display grid
-      clara/                # Clara brick system (diagonal lattice clutch)
-        clara_lib.py        # clara_brick() — pure geometry
-        clara.py            # Default entry point for ./run.sh
-        parametric.py       # Worker interface: _build() + Clara-specific config
-        panel_def.py        # Clara panel params (imports shared, no Internals)
-        tests/              # Geometry math verification
-          test_clara_lattice.py  # Lattice tangent/overlap/symmetry tests
+      brick_lib.py          # UNIFIED geometry: brick(), slope(), cross shapes, all clutch types
+      parametric.py         # UNIFIED worker: _build() + overrides for all params
+      panel_def.py          # UNIFIED panel sections + presets (LEGO Standard, Clara Mini, etc.)
+      brick.py              # Default entry point for ./run.sh
+      collection.py         # Multiple brick types in display grid
+      tests/                # Geometry math verification
+        test_lattice.py     # Lattice tangent/overlap/symmetry tests
   renders/                  # Multi-angle render output (gitignored)
   docs/                     # Reports and documentation
     architecture.html       # Architecture plan + alternatives report
@@ -174,16 +168,13 @@ build123d_tests/
   .claude_todo.md           # Task tracking
 ```
 
-### Why LEGO and Clara are separate directories
+### Unified brick system (replaced separate lego/ and clara/ dirs)
 
-LEGO and Clara are different brick systems with different clutch mechanisms:
-- LEGO uses **cylindrical tubes** (anti-stud tubes + ridges) for underside grip
-- Clara uses a **diagonal lattice** (±45° crisscross struts) for underside grip
-
-They share shell geometry, stud dimensions, and fillet logic (in `common.py`),
-but their internal structures are fundamentally different. Mixing them in one
-directory caused confusion: launching with a Clara script but getting LEGO
-tubes when changing size, tube-related sliders appearing for Clara, etc.
+LEGO and Clara were separate directories with ~70% duplicated code. Now merged
+into a single system where clutch type (TUBE/LATTICE/NONE) is a dropdown
+parameter. LEGO and Clara are presets, not separate codebases. Clara-only
+features (corner radius, wall taper, stud taper) are available with any clutch.
+Cross-shaped bricks and 4-directional slopes added in the unified system.
 
 ### Why panel_def.py and parametric.py are separate files
 
@@ -224,32 +215,23 @@ panel_def.py (SECTIONS data)  ←  single source of truth
 **Philosophy**: Sliders are for exploration. Permanent changes go through Claude editing code.
 
 ```
-LEGO panel (Blender N-sidebar, "build123d" tab):
-  ├── Reset to Defaults button
-  ├── Shape: brick_type (BRICK/PLATE/SLOPE), studs_x, studs_y, flat_rows
-  ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height, plate_height
-  ├── Walls: wall_thickness, floor_thickness, clearance
-  ├── Internals: tube_outer_diameter, tube_inner_diameter, ridge_width/height
-  ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
-  ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom, skip_concave
-  └── [✓] Anatomy: show_anatomy, region selector dropdown
-
-Clara panel (same tab, different layout):
-  ├── Preset dropdown (Mini Brick, Mini Slope, LEGO Standard) + reset
-  ├── Shape: studs_x, studs_y
+Unified panel (Blender N-sidebar, "build123d" tab):
+  ├── Preset dropdown (Clara Mini, LEGO Standard, etc.) + reset
+  ├── Shape: shape_mode (RECTANGLE/CROSS), studs_x/y or directional params, cross widths
+  ├── [✓] Slope: enable_slope, 4 directional flat_rows (+Y/-Y/+X/-X), slope_min_z
   ├── Studs & Body: pitch, stud_diameter, stud_height, brick_height
   ├── Walls: wall_thickness, floor_thickness, clearance
-  ├── [✓] Slope: enable_slope, slope_flat_rows
+  ├── Clutch: clutch_type (TUBE/LATTICE/NONE), tube params (visible when TUBE)
   ├── [✓] Corner Radius: enable_corner_radius, corner_radius
   ├── [✓] Wall Taper: enable_wall_taper, height, inset, curve (LINEAR/CURVED)
   ├── [✓] Stud Taper: enable_stud_taper, height, inset, curve (LINEAR/CURVED)
-  ├── [✓] Text: enable_text, stud_text, font, font_size, text_height
+  ├── [✓] Text: enable_text, stud_text, font, font_size, text_height, rotation
   ├── [✓] Fillet: enable_fillet, edge_style (Rounded/Chamfer), fillet_radius, include_bottom, skip_concave
   └── [✓] Anatomy: show_anatomy, region selector dropdown
   [✓] = toggleable section (enable_key pattern, see below)
 ```
 
-**Architecture**: Panel definitions are data-driven. Model-specific params live in `models/bricks/<system>/panel_def.py` (pure data, no bpy). General panel infrastructure in `blender_watcher.py` dynamically builds Blender PropertyGroup + Panel from any `panel_def.py` found in the watched directory.
+**Architecture**: Panel definitions are data-driven. Params live in `models/bricks/panel_def.py` (pure data, no bpy). General panel infrastructure in `blender_watcher.py` dynamically builds Blender PropertyGroup + Panel from any `panel_def.py` found in the watched directory.
 
 **Section enable_key pattern**: Any section can have an `enable_key` field pointing
 to a bool param in its `params` list. When present:
@@ -261,12 +243,12 @@ to a bool param in its `params` list. When present:
 Anatomy uses this pattern too (built at registration time in `blender_watcher.py`
 since it needs bpy callbacks), but it's display-only — not sent to the build worker.
 
-**Preset system** (Clara only, extensible to LEGO):
+**Preset system** (unified):
 - `panel_def.py` exports a `PRESETS` list of `{key, label, description, params}` dicts
 - Each preset's `params` dict contains json_key overrides (delta from SECTIONS defaults)
 - Apply preset = reset all params to defaults, then apply overrides
-- Mini Brick preset has empty params (matches defaults), LEGO Standard overrides back to original values
-- Panel shows preset buttons in a row + reset icon
+- Clara Mini Brick preset has empty params (matches defaults), LEGO Standard overrides clutch/taper/radius
+- Panel shows preset dropdown + reset icon
 - `blender_watcher.py` loads PRESETS at registration and creates a PresetOp operator
 
 **Persistent worker** (`build_worker.py`): Keeps build123d imported across slider changes. Spawned as a child process of Blender (stdin/stdout pipes, not sockets). Eliminates the 1.3s import cost per rebuild — steady-state ~0.9s vs ~2.5s without worker.
@@ -281,12 +263,10 @@ since it needs bpy callbacks), but it's display-only — not sent to the build w
 - `models/bricks/panel_common.py` — shared panel sections (Walls, Text, Fillet) + anatomy
 - `models/bricks/parametric_base.py` — shared `apply_overrides()` + `run()` + `standalone_main()`
   - Override keys derived from `panel_def.SECTIONS` (type + json_key) — no manual override lists
-- `models/bricks/lego/panel_def.py` — LEGO sections (imports shared + adds Internals)
-- `models/bricks/lego/parametric.py` — LEGO `_build()` + LEGO-specific overrides (tubes)
-- `models/bricks/clara/panel_def.py` — Clara sections (imports shared, no Internals)
-- `models/bricks/clara/parametric.py` — Clara `_build()` + minimal config
+- `models/bricks/panel_def.py` — unified panel sections + presets (Shape, Slope, Clutch, etc.)
+- `models/bricks/parametric.py` — unified `_build()` dispatching to `brick_lib.brick()` or `brick_lib.slope()`
 
-## Unified Brick System (PLANNED — replaces separate LEGO/Clara)
+## Unified Brick System (IMPLEMENTED)
 
 ### Motivation
 LEGO and Clara share ~80% of their geometry code (shell, studs, fillets, text, slopes).
@@ -379,27 +359,26 @@ footprint naturally.
 | Clara Mini Slope | LATTICE | "CLARA" | 2.0 | on | 4.0 | Mini Brick + slope |
 | Hollow Shell | NONE | "" | 0 | off | 1.8 | No clutch, for testing |
 
-### Target File Structure (after refactor)
+### File Structure (after refactor — COMPLETED)
 ```
 models/bricks/
   common.py             # Shared constants (unchanged)
-  panel_common.py       # Shared panel helpers + anatomy (minor updates)
+  panel_common.py       # Shared panel helpers + anatomy
   parametric_base.py    # Override application (unchanged)
-  brick_lib.py          # UNIFIED geometry: brick(), slope(), cross shapes
+  brick_lib.py          # UNIFIED geometry: brick(), slope(), cross shapes, all clutch types
   parametric.py         # UNIFIED worker: _build() + overrides
   panel_def.py          # UNIFIED panel sections + presets
   brick.py              # Default entry point for ./run.sh
+  collection.py         # Display grid of various brick types
   tests/
     test_lattice.py     # Lattice geometry tests (moved from clara/tests/)
-    test_cross.py       # NEW: cross-shape geometry tests
-    test_slopes.py      # NEW: 4-directional slope tests
 ```
 
-Old directories (`lego/`, `clara/`) deleted after merge is verified.
+Old directories (`lego/`, `clara/`) deleted.
 
-## Clara Brick Features
+## Brick Feature Details
 
-**Brand**: "Clara" (not Lego). All studs have raised "CLARA" text.
+**Stud text**: Configurable per brick ("CLARA", "LEGO", or custom). Raised embossed text on each stud.
 
 ### Stud Text Dimensions (from real Lego measurements)
 - Raised height: **0.1mm** above stud top surface
@@ -409,9 +388,9 @@ Old directories (`lego/`, `clara/`) deleted after merge is verified.
 - Font: bold sans-serif, centered on stud top
 - Implementation: `Text("CLARA", font_size, font_style=FontStyle.BOLD)` + `extrude(0.1)` on stud top face
 
-### Clara Brick Lattice (Diagonal Clutch)
+### Lattice Clutch (LATTICE)
 
-Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a different clutch mechanism optimized for 3D printing. Similar to Montini bricks, but with diagonals in BOTH directions (Montini only has one direction).
+The LATTICE clutch uses ±45° diagonal lattice struts instead of cylindrical tubes — optimized for 3D printing. Similar to Montini bricks, but with diagonals in BOTH directions (Montini only has one direction).
 
 **Requirements** (user-specified):
 - 45° crisscross struts forming diamonds on the underside
@@ -431,53 +410,44 @@ Clara bricks replace cylindrical tubes with a ±45° diagonal lattice — a diff
 - −45° strut at c: center at `(c/2, c/2)`, rotated −45°. Line: `y + x = c`
 - Diamond inscribed circle radius = `PITCH/(2√2) − t/2 = STUD_DIAMETER/2` (proven algebraically)
 
-**3D Printing Features** (Clara-specific, in "3D Printing" panel section):
+**3D Printing Features** (available with any clutch type):
 - **Corner radius** (`corner_radius`): 2D rounding of the brick outline (like CSS `border-radius`). Visible from top-down view. Uses `RectangleRounded(w, h, r)` for the outer sketch. Inner cavity stays sharp — thicker corners = stronger for printing. Clamped to half the smallest outer dimension.
 - **Wall taper** (`taper_height` + `taper_inset` + `taper_curve`): Top portion of outer walls slopes inward. LINEAR = straight line. CURVED = quarter-circle profile `f(t) = 1 - sqrt(1 - t^2)` — tangent to wall at bottom, tangent to deck at top, no inflection point. Curved uses 8 intermediate loft profiles.
 - **Stud taper** (`stud_taper_height` + `stud_taper_inset` + `stud_taper_curve`): Top portion of studs tapers inward (radius decreases). Same LINEAR/CURVED options. Built as a standalone lofted Part, placed via `add()` + `GridLocations`.
-- When no taper/radius is active, `clara_brick()` uses the fast `Box()` path (no loft overhead).
+- When no taper/radius is active, `brick()` uses the fast `Box()` path (no loft overhead).
 
-**Implementation** (`clara_brick()` in `models/bricks/clara/clara_lib.py`):
+**Implementation** (`brick()` in `models/bricks/brick_lib.py`):
 1. Shell: 3-branch construction — has_taper → multi-profile loft, corner_radius > 0 → rounded rect extrude, else → Box (fastest)
 2. Cavity: sharp rectangle subtracted from shell (intentionally NOT rounded — thicker material at corners)
-3. Lattice: built via `_build_lattice()` helper — 2D sketch with `Locations([Pos * Rot])`, clipped with `Mode.INTERSECT`, extruded to `cavity_z`. Shared by `clara_brick` and `clara_slope`.
-4. Fillet threshold = `cavity_z` (not 0) — lattice strut edges are too thin for OCCT filleter
-5. Studs (with optional stud taper via `_build_stud()`), text — same pattern as `lego_brick`
+3. Clutch internals: TUBE → `_build_tubes()` + `_build_ridge()`, LATTICE → `_build_lattice()`, NONE → nothing
+4. Fillet threshold: LATTICE → `cavity_z` (strut edges too thin), TUBE/NONE → 0
+5. Studs (with optional stud taper via `_build_stud()`), text
 
-### Clara Slope Bricks
+### Slope Bricks
 
-`clara_slope()` in `clara_lib.py`. Same slope geometry as `lego_slope()` (proven
-slope plane math) but with diagonal lattice instead of tubes.
+`slope()` in `brick_lib.py`. Supports 4-directional slopes with any clutch type.
 
-**Build order** (critical — same pattern as LEGO slope):
-1. Outer shell (with optional corner_radius + taper via loft) → `split` by slope plane
-2. Cavity box → `split` by OFFSET slope plane (FLOOR_THICKNESS gap)
+**Build order** (critical):
+1. Outer shell (with optional corner_radius + taper via loft) → sequential `split` by ALL active slope planes
+2. Cavity box → sequential `split` by ALL OFFSET slope planes (FLOOR_THICKNESS gap)
 3. Shell = sloped_outer - sloped_cavity
-4. Lattice built separately via `_build_lattice()` → clipped with `& sloped_cavity`
-5. Studs on flat rows only (with optional stud taper)
+4. Clutch internals built separately → clipped with `& sloped_cavity`
+5. Studs on flat portion only (positions computed per-direction from hinge points)
 6. Fillet (may fail on slopes — known OCCT limitation, caught gracefully)
 7. Text on flat stud positions
 
 **Panel**: "Slope" section with `enable_key: "enable_slope"` (default False).
-When enabled, `slope_flat_rows` (int, 1-8) controls how many stud rows remain
-flat. All other features (corner radius, taper, stud taper) apply to slopes.
+When enabled, 4 directional `flat_rows` sliders (+Y/-Y/+X/-X) + `slope_min_z`.
 
-**Presets**: "Mini Slope" = Mini Brick defaults + slope enabled.
-
-**Key lesson**: The lattice MUST be built in a separate `BuildPart` for slopes
-(unlike `clara_brick` where it's added directly), so it can be boolean-intersected
-with `sloped_cavity`. Same pattern as LEGO slope tubes.
-
-**Tests**: `models/bricks/clara/tests/test_clara_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
-
-### Slope Bricks
-- `lego_slope(studs_x, studs_y, height, flat_rows)`: creates wedge/slope bricks
-- Build order: solid outer box → `split` slope → subtract cavity (split by OFFSET plane) → tubes (sketch → extrude → `& sloped_cavity`) → studs → fillet → text
-- Slope terminates at `Z=WALL_THICKNESS` (not Z=0) — creates realistic lip at low end like Lego 3039
-- Cavity cut plane is offset INWARD by `FLOOR_THICKNESS` along slope normal — ensures solid material between slope face and interior everywhere
-- **Cannot use pure 2D sketch approach** for slopes — the implicit cavity can't be trimmed by a plane (see concerns.md for full explanation)
+**Key lessons**:
+- Clutch internals MUST be built in a separate `BuildPart` for slopes, boolean-intersected with `sloped_cavity`
+- Slope terminates at `Z=slope_min_z` (default WALL_THICKNESS) — creates realistic lip at low end
+- Cavity cut plane is offset INWARD by `FLOOR_THICKNESS` along slope normal
+- **Cannot use pure 2D sketch approach** for slopes — the implicit cavity can't be trimmed by a plane
 - Studs only on the flat (non-sloped) portion
-- Tubes clipped to cavity via `&` (boolean intersection) — never use `split()` on tubes
+- Clutch internals clipped to cavity via `&` — never use `split()` on tubes
+
+**Tests**: `models/bricks/tests/test_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
 
 ### Collection Display
 - `collection.py`: generates all brick types in a grid layout
@@ -494,24 +464,20 @@ with `sloped_cavity`. Same pattern as LEGO slope tubes.
 - 1024×1024 PNG output to `renders/` directory
 - Claude reads PNGs via Read tool for visual verification
 
-### Geometry Library Architecture (2D sketch -> extrude)
+### Geometry Library Architecture
 
-Shared code in `models/bricks/common.py`:
+**`models/bricks/common.py`** (shared constants + helpers):
 - `bevel_above_z(part, radius, z_threshold, style, include_bottom, skip_concave)` — fillet or chamfer edges. Uses `filter_by_position(Axis.Z, ...)` for Z-threshold and `Edge.is_interior` for concavity detection. Handles boundary edges (<2 adjacent faces) gracefully.
 - All shared constants: PITCH, STUD_DIAMETER, STUD_HEIGHT, BRICK_HEIGHT, SKIP_CONCAVE, etc.
 - `fillet_above_z` kept as backwards compatibility alias
 
-LEGO system (`models/bricks/lego/lego_lib.py`):
-- `lego_brick()`, `lego_slope()` — import shared constants from common.py
-- LEGO-only constants: TUBE_OUTER_DIAMETER, TUBE_INNER_DIAMETER, RIDGE_WIDTH, RIDGE_HEIGHT
-- Standard bricks: 2D sketch (walls + tubes via `GridLocations` circles) -> extrude -> ceiling -> ridge -> studs -> fillet -> text
-- Slopes: solid outer `Box` -> `split` slope -> subtract trimmed cavity -> tubes (sketch -> extrude -> `& sloped_cavity`) -> studs -> fillet -> text
-
-Clara system (`models/bricks/clara/clara_lib.py`):
-- `clara_brick()`, `clara_slope()` — import shared constants from common.py
-- No LEGO-specific constants (no tubes/ridges)
-- Lattice: `_build_lattice()` helper — 2D sketch with `Locations([Pos * Rot])` for +/-45 deg struts, clipped with `Mode.INTERSECT` → extrude to cavity_z
-- Slopes: shell (with optional taper/radius) → split → lattice `& sloped_cavity` → studs on flat rows
+**`models/bricks/brick_lib.py`** (unified geometry):
+- `brick()`, `slope()` — two main functions with clutch type as a parameter
+- LEGO tube constants: TUBE_OUTER_DIAMETER, TUBE_INNER_DIAMETER, RIDGE_WIDTH, RIDGE_HEIGHT
+- Standard bricks: Box - cavity → clutch internals → studs → fillet → text
+- Cross-shape bricks: union of two Boxes → inset cavity → studs at grid positions within footprint
+- Slopes: shell → split by slope planes → clutch `& sloped_cavity` → studs on flat portion
+- Lattice: `_build_lattice()` — 2D sketch with `Locations([Pos * Rot])` for ±45° struts
 
 ## build123d API Quick Reference (for Claude)
 

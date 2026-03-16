@@ -471,74 +471,6 @@ def _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
     }
 
 
-def _build_cross_sketch(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
-    """
-    Command, specific. Add a cross-shaped outline to the current BuildSketch.
-
-    Union of two centered rectangles: horizontal bar and vertical bar.
-
-    Args:
-        plus_x, minus_x, plus_y, minus_y (int): Arm lengths.
-        width_x, width_y (int): Arm widths.
-
-    Examples:
-        >>> # with BuildSketch(): _build_cross_sketch(1, 1, 1, 1, 1, 1)
-    """
-    dims = _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y,
-                                 width_x, width_y)
-    h_w = dims["h_bar_x"] * PITCH - 2 * CLEARANCE
-    h_h = dims["h_bar_y"] * PITCH - 2 * CLEARANCE
-    v_w = dims["v_bar_x"] * PITCH - 2 * CLEARANCE
-    v_h = dims["v_bar_y"] * PITCH - 2 * CLEARANCE
-
-    # Center offset: the cross center block is not necessarily at the bounding
-    # box center. Compute the offset needed to center the cross on origin.
-    total_x = dims["total_x"]
-    total_y = dims["total_y"]
-    # The center of the center block in grid coords:
-    # center block spans [0, width_x) x [0, width_y) but arms extend asymmetrically
-    # Bounding box: [-minus_x, width_x + plus_x) x [-minus_y, width_y + plus_y)
-    # BBox center in grid: ((-minus_x + width_x + plus_x - 1) / 2, ...)
-    # Center block center in grid: ((width_x - 1) / 2, (width_y - 1) / 2)
-    # We center the bounding box on origin:
-    # offset = (bbox_center - center_block_center) ... no, just center the BBox.
-
-    # Horizontal bar center offset from BBox center:
-    # H bar spans the full X range, so its center is at BBox center_x = 0 (already centered)
-    # H bar is centered on Y=0 only if the center block is at BBox center_y
-    h_center_y = 0  # horizontal bar is always at Y center of bounding box
-    v_center_x = 0  # vertical bar is always at X center of bounding box
-
-    # But the bars may not share the same center if widths are > 1 and arms asymmetric
-    # H bar Y center (in grid): (width_y - 1) / 2, relative to BBox center: 0
-    # because BBox Y goes from -minus_y to width_y + plus_y - 1
-    # BBox center Y (grid): (-minus_y + width_y + plus_y - 1) / 2
-    # H bar center Y (grid): (width_y - 1) / 2
-    # Offset = h_bar_center - bbox_center = (width_y - 1)/2 - (-minus_y + width_y + plus_y - 1)/2
-    #        = (width_y - 1 + minus_y - width_y - plus_y + 1) / 2 = (minus_y - plus_y) / 2
-    h_offset_y = (minus_y - plus_y) / 2 * PITCH
-    v_offset_x = (minus_x - plus_x) / 2 * PITCH
-
-    Rectangle(h_w, h_h, align=(Align.CENTER, Align.CENTER),
-              mode=Mode.ADD)
-    if h_offset_y != 0:
-        # Need to position the h_bar offset from center — but Rectangle is always at origin
-        # in BuildSketch. Use Locations instead.
-        pass  # Actually both bars share the sketch origin. Let me reconsider.
-
-    # Simpler approach: both bars centered on the BBox center (origin).
-    # The h_bar IS centered on origin in X (spans full X). Its Y center is at
-    # the midpoint of the Y range of the h_bar, which within the BBox is:
-    # The h_bar covers Y grid range [0, width_y), BBox Y range [-minus_y, width_y + plus_y)
-    # BBox center Y grid: (-minus_y + width_y + plus_y - 1) / 2
-    # H bar center Y grid: (width_y - 1) / 2
-    # In world coords relative to BBox center: offset = ((width_y-1)/2 - (-minus_y + width_y + plus_y - 1)/2) * PITCH
-    # = (minus_y - plus_y) / 2 * PITCH
-
-    # Let me just use Locations for both bars positioned correctly.
-    pass
-
-
 def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
                        height, corner_radius=0, taper_height=0, taper_inset=0,
                        taper_curve="LINEAR"):
@@ -697,42 +629,6 @@ def _slope_planes(direction, outer_x, outer_y, height, flat_rows, slope_min_z):
     cavity_cut_plane = Plane(origin=cavity_origin, x_dir=x_dir, z_dir=normal)
 
     return cut_plane, cavity_cut_plane
-
-
-def _is_stud_flat(stud_x, stud_y, height, slope_planes_list):
-    """
-    Pure function, general. Check if a stud position is on the flat deck
-    (above all slope planes).
-
-    A stud is "flat" if the slope surface Z at that (x, y) equals the brick
-    height (i.e., the slope hasn't started cutting there yet).
-
-    Args:
-        stud_x (float): Stud center X.
-        stud_y (float): Stud center Y.
-        height (float): Brick height.
-        slope_planes_list (list[tuple]): List of (direction, flat_rows, slope_min_z) tuples.
-
-    Returns:
-        bool: True if the stud position is on the flat deck.
-
-    Examples:
-        >>> # _is_stud_flat(0, -12, 9.6, [("+Y", 1, 1.5)])  -> True (flat row)
-        >>> # _is_stud_flat(0, 12, 9.6, [("+Y", 1, 1.5)])  -> False (sloped area)
-    """
-    # For now, use a simpler approach: check if the stud is within the flat
-    # region for ALL active slopes. The flat region for a slope is defined by
-    # the flat_rows from the hinge point backward.
-    # A stud at (x, y) is flat for a slope if it's on the non-sloped side of the hinge.
-    for direction, flat_rows, _ in slope_planes_list:
-        if direction == "+Y":
-            # Flat region is Y < hinge_y + half_pitch (within flat_rows from -Y edge)
-            # The first flat_rows stud rows are flat
-            # In grid coords, flat studs have j < flat_rows
-            # Since we compare world coords, use the PITCH-based test
-            pass
-        # This gets complex. Instead, just use grid-based flat check.
-    return True  # placeholder — implemented properly in brick/slope
 
 
 # ── Main geometry functions ──────────────────────────────────────────────────
@@ -1050,7 +946,6 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
         tubes = _build_tubes(studs_x, studs_y, cavity_z)
         if tubes:
             clipped_clutch = tubes & sloped_cavity
-        ridge = _build_ridge(studs_x, studs_y, cavity_z)
     elif clutch == "LATTICE":
         lattice = _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z)
         clipped_clutch = lattice & sloped_cavity

@@ -503,3 +503,72 @@ Key discoveries:
 - `PresetOp` dead no-op removal — safe but low priority
 - `render_preview.py` bugs (wrong modifier type, missing `use_nodes`) — these are Blender-side, not geometry
 - `build_worker.py` unguarded `json.loads` — worker currently handles this via process restart
+
+## 2026-03-16: Unified Brick System (Merge LEGO + Clara)
+
+### Motivation
+LEGO (`models/bricks/lego/`) and Clara (`models/bricks/clara/`) shared ~70% of
+their geometry code but were separate codebases. The only real difference was the
+clutch mechanism (tubes vs lattice). This caused:
+- Duplicated shell, stud, fillet, text, slope code across `lego_lib.py` and `clara_lib.py`
+- Clara-only features (corner_radius, taper, stud_taper) unavailable with TUBE clutch
+- Two separate panels, two parametric workers, two entry points
+
+### What was built
+Created 4 new files replacing 8 old files:
+
+1. **`brick_lib.py`** (~650 lines): Unified `brick()` and `slope()` functions with
+   clutch type as parameter (TUBE/LATTICE/NONE). All Clara features (corner_radius,
+   wall taper, stud taper) available with any clutch. New: cross-shaped bricks (L/T/+)
+   via `shape_mode="CROSS"` and 4-directional slopes.
+
+2. **`panel_def.py`** (~280 lines): Unified panel with Shape (RECTANGLE/CROSS with
+   visible_when), Slope (4-dir), Clutch (TUBE/LATTICE/NONE with visible_when for
+   tube params), and all existing sections. PRESETS: Clara Mini, Clara Mini Slope,
+   LEGO Standard, LEGO Slope, Hollow.
+
+3. **`parametric.py`** (~105 lines): Unified worker reading clutch_type and shape_mode,
+   dispatching to brick_lib.brick() or brick_lib.slope().
+
+4. **`brick.py`** (~20 lines): Default entry point building a Clara Mini brick.
+
+### Files deleted
+- `lego/lego_lib.py`, `lego/parametric.py`, `lego/panel_def.py`, `lego/lego.py`
+- `clara/clara_lib.py`, `clara/parametric.py`, `clara/panel_def.py`, `clara/clara.py`
+- `clara/tests/` directory (tests moved to `models/bricks/tests/test_lattice.py`)
+
+### Cross-shape geometry approach
+Tried two approaches for the 2D footprint:
+1. **BuildSketch with offset centering** (`_build_cross_sketch`): Got stuck on the
+   centering math for asymmetric arms with non-1 widths. The algebra for positioning
+   two bars relative to a bounding box center that doesn't match the cross center
+   became unwieldy. Abandoned (dead code removed in cleanup).
+2. **Two positioned Boxes** (`_build_cross_shell`): Much simpler. Each bar is a Box
+   placed at the correct position with `Pos * Box`. build123d's boolean union handles
+   the overlap. No 2D sketch centering needed.
+
+For the cavity, the same two-Box approach with dimensions inset by WALL_THICKNESS.
+
+### 4-directional slopes approach
+Generalized the existing +Y slope plane math to all 4 directions. Each active slope
+produces a (cut_plane, cavity_cut_plane) pair. The brick shell and cavity are split
+sequentially by ALL active planes via `split(keep=Keep.BOTTOM)`. Multiple simultaneous
+slopes (e.g. corner roof: -X and -Y) create ridge lines at the intersection naturally.
+
+Flat stud positions computed per-direction from hinge points. A stud is flat only if
+it's on the non-sloped side of ALL active slope hinge lines.
+
+### Dead code cleaned up
+- `_build_cross_sketch()`: abandoned sketch-based approach with `pass` stubs
+- `_is_stud_flat()`: placeholder returning `True`, superseded by `_flat_stud_positions_rect()` and `_filter_flat_studs_cross()`
+- Duplicate `_build_ridge()` call in `slope()` (called once for unused variable, once for actual use)
+
+### Test results
+All 18 integration configs pass (Clara default/chamfer/slope/skip_concave/corner_radius/taper,
+LEGO default/plate/slope/fillet_bottom/skip_concave, Hollow, Cross+LATTICE, Cross L TUBE,
+Slope -Y, Corner roof, Pyramid, Cross+slope). 7/7 lattice geometry tests pass.
+
+### Net code change
+- ~1050 lines of new unified code replacing ~1600 lines of duplicated LEGO+Clara code
+- Plus cross-shape and 4-directional slope features that didn't exist before
+- Old `lego/` and `clara/` directories fully deleted
