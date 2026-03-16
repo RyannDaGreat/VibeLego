@@ -470,13 +470,27 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
     inner_z = height - FLOOR_THICKNESS
 
     # Slope cutting plane: from top at hinge line to lip at far edge.
-    # Real bricks have a vertical lip (WALL_THICKNESS tall) at the low end —
-    # the slope doesn't go all the way to Z=0.
+    # Real bricks have a vertical lip (WALL_THICKNESS tall) at the low end.
     hinge_y = -outer_y / 2 + flat_rows * PITCH
     slope_dy = outer_y / 2 - hinge_y
     slope_dz = height - WALL_THICKNESS  # slope drops to WALL_THICKNESS, not 0
     cut_plane = Plane(
         origin=(0, hinge_y, height),
+        x_dir=(1, 0, 0),
+        z_dir=(0, slope_dz, slope_dy),
+    )
+
+    # Cavity cut plane: offset inward by FLOOR_THICKNESS perpendicular to slope.
+    # Without this offset, the cavity ceiling touches the slope surface with
+    # zero wall thickness — looking over the lip, you see straight into the
+    # interior. The offset ensures FLOOR_THICKNESS of solid material between
+    # the slope face and the cavity everywhere.
+    slope_normal_mag = math.sqrt(slope_dz**2 + slope_dy**2)
+    offset = FLOOR_THICKNESS
+    cavity_cut_plane = Plane(
+        origin=(0,
+                hinge_y - offset * slope_dz / slope_normal_mag,
+                height - offset * slope_dy / slope_normal_mag),
         x_dir=(1, 0, 0),
         z_dir=(0, slope_dz, slope_dy),
     )
@@ -487,13 +501,14 @@ def lego_slope(studs_x, studs_y, height=BRICK_HEIGHT, flat_rows=1):
             align=(Align.CENTER, Align.CENTER, Align.MIN))
     sloped_outer = split(outer.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
 
-    # 2. Interior cavity → cut by same plane (stays inside the shell)
+    # 2. Interior cavity → cut by OFFSET plane (stays inside shell with
+    #    FLOOR_THICKNESS clearance from slope surface)
     with BuildPart() as inner:
         Box(inner_x, inner_y, inner_z,
             align=(Align.CENTER, Align.CENTER, Align.MIN))
-    sloped_cavity = split(inner.part, bisect_by=cut_plane, keep=Keep.BOTTOM)
+    sloped_cavity = split(inner.part, bisect_by=cavity_cut_plane, keep=Keep.BOTTOM)
 
-    # 3. Shell = outer - cavity (direct boolean, not add+mode)
+    # 3. Shell = outer - cavity
     shell = sloped_outer - sloped_cavity
 
     # 4. Add internal features + studs

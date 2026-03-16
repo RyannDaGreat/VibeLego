@@ -88,6 +88,7 @@ build123d_tests/
   docs/                     # Reports and documentation
     architecture.html       # Architecture plan + alternatives report
   build123d/                # build123d source (git submodule, dev branch)
+  CLAUDE.md                 # Local Claude instructions (VLM verification rule)
   claude_instructions.md    # This file
   concerns.md               # Research log + lessons learned
   .claude_todo.md           # Task tracking

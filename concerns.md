@@ -77,8 +77,12 @@ Launched 7 agents to investigate all angles before writing any code:
 - First fix attempt: build solid outer → cut slope → subtract slope-trimmed cavity. Used `add(cavity, mode=Mode.SUBTRACT)` and later `sloped_outer - sloped_cavity`. The boolean worked, but the cavity was still visible because...
 - Root cause: the slope cut went to Z=0, eliminating the front wall entirely. The bottom opening (which is correct — bricks ARE open from below) became fully exposed from the +Y side. No wall remained to partially occlude the interior.
 - Confirmed via VLM multi-angle renders: the `front` (side profile) view showed the slope face was solid. The "hole" was actually the bottom opening seen through the zero-height front lip.
-- Final fix: slope plane now terminates at `Z=WALL_THICKNESS` (1.5mm) instead of Z=0, creating a realistic lip like Lego 3039. This was a two-variable change: `slope_dz = height - WALL_THICKNESS` instead of `height`.
-- Lesson: VLM multi-angle verification is essential for 3D geometry bugs. A single iso view can be misleading — the 14-angle render revealed the true nature of the problem.
+- Partial fix: slope plane now terminates at `Z=WALL_THICKNESS` (1.5mm) instead of Z=0, creating a realistic lip. This improved the profile but the cavity was still visible from above because the cavity ceiling touched the slope surface (zero wall thickness between slope face and interior).
+- **Actual root cause**: the cavity cut plane was identical to the outer slope cut plane. Both used the same `Plane(origin=(0, hinge_y, height), z_dir=(0, slope_dz, slope_dy))`. This means the cavity's angled ceiling sits flush against the outer slope face — zero material between them. Looking over the lip from above, you see straight into the interior.
+- **Final fix**: offset the cavity cut plane inward by `FLOOR_THICKNESS` perpendicular to the slope surface. Computed the slope normal magnitude (`sqrt(slope_dz² + slope_dy²)`), then shifted the cavity plane origin by `-FLOOR_THICKNESS * normal/|normal|`. This ensures solid material everywhere between the slope face and interior cavity.
+- VLM verification of 14-angle renders confirmed the fix: `iso_fr` shows solid slope with no hole, `right` shows only the standard bottom opening, all exterior angles fully solid.
+- Lesson 1: VLM multi-angle verification is essential for 3D geometry bugs. A single iso view can be misleading — the 14-angle render revealed the true nature of the problem.
+- Lesson 2: Don't rationalize VLM findings. If the rendered image shows a hole, there IS a hole — investigate the geometry math instead of explaining it away as "the bottom opening from another angle."
 
 ### Blender EEVEE engine name
 - Blender 5.0: engine is `"BLENDER_EEVEE"`, not `"BLENDER_EEVEE_NEXT"` (which was 4.x).
