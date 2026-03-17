@@ -820,3 +820,39 @@ other silent error patterns. Each agent searched a different category:
 19. **"Pitch" terminology**: Not official LEGO terminology. The official term is "LSS"
     (LEGO Stud Spacing). "Pitch" is an engineering term that's well-understood and
     fine to keep. Our value (8.0mm) matches the standard LSS (measured: 7.985mm).
+
+## 2026-03-16: Silent Error Audit Fixes Implementation
+
+### Fixes applied (all from 10-agent audit + user reports)
+
+**User-reported bugs (Phase 1):**
+- Fixed BRICK_HEIGHT slider: `parametric.py _build()` now reads `height = float(params.get("BRICK_HEIGHT", ...))` and passes it to `brick()` and `slope()`. Verified with scratchpad: height=5.0 produces Z=6.9 vs standard 11.5.
+- Fixed slope deck overhang: changed hinge computation from CLEARANCE-adjusted `sx*PITCH - 2*CLEARANCE` to raw `sx*PITCH`. Verified with math: hinge now at -8.0 (grid-aligned) instead of -7.9.
+- Fixed STUD_HEIGHT panel default: 4.0 → 1.8 in panel_def.py.
+
+**High-severity silent errors (Phase 2):**
+- Replaced degenerate lattice fallback `Box(0.01)` artifact with `return None`. Updated both callers (brick() and slope()) to check for None.
+- Fixed empty intersection truthiness: `clutch & sloped_cavity` result now checked with `.volume > GEOM_TOL` instead of bare truthiness. build123d Shape objects are truthy even when empty.
+- Removed dead `_build_tubes()` function (replaced by inline tube construction in brick()/slope()). Also removed `GridLocations` import.
+
+**Medium-severity fixes (Phase 3):**
+- Added `GEOM_TOL = 0.01` constant to `common.py`. Replaced ~12 bare `0.01` literals across brick_lib.py.
+- Fixed `bars[0] == bars[1]` exact float equality → epsilon comparison with GEOM_TOL.
+- Added fillet warning: `_try_fillet` now prints OCCT ValueError message instead of silently swallowing.
+- Fixed `test_integration.py`: added `traceback.print_exc()` before the FAIL message.
+- Fixed `build_worker.py`: added `except (KeyboardInterrupt, SystemExit): raise` before the broad `except Exception`.
+- Fixed `render_preview.py`: added `mat.use_nodes = True` before accessing `node_tree`.
+- Removed dead `brick_type=="PLATE"` branch in `panel_common.py classify_face()`.
+- Added `FACE_CLASS_TOL = 0.05` module-level constant in `panel_common.py`.
+
+**Low-severity cleanup (Phase 4):**
+- Removed dead alias `fillet_above_z = bevel_above_z` from common.py.
+- Removed dead alias `POLISH_SECTION = FILLET_SECTION` from panel_common.py.
+- Updated stale comment referencing deleted `_build_outer_shell`.
+
+**Test results:** 27/27 integration + 10/10 lattice — all pass. Two expected fillet warnings on slope configs (known OCCT limitation).
+
+### Lessons learned
+- build123d `.volume` is a property, not a method. `.volume()` raises `TypeError: 'float' object is not callable`.
+- Empty build123d Shape objects from boolean intersection (`&`) are truthy — must check `.volume > tol` explicitly.
+- Python default arguments are evaluated once at definition time. Module-level attribute patches via `apply_overrides()` don't affect already-captured defaults. Must read from params dict explicitly.

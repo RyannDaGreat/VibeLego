@@ -148,8 +148,8 @@ build123d_tests/
   models/                   # All build123d model scripts
     example_box.py          # Simple example: box with cylindrical hole
     bricks/                 # Unified brick system
-      common.py             # Shared constants + bevel_above_z
-      panel_common.py       # Shared panel sections (Walls, Text, Fillet) + anatomy classification
+      common.py             # Shared constants (GEOM_TOL, etc.) + bevel_above_z
+      panel_common.py       # Shared panel sections (Walls, Text, Fillet) + anatomy classification (FACE_CLASS_TOL)
       parametric_base.py    # Shared override application + worker interface (run, apply_overrides)
       brick_lib.py          # UNIFIED geometry: brick(), slope(), cross shapes, all clutch types
       parametric.py         # UNIFIED worker: _build() + overrides for all params
@@ -429,7 +429,7 @@ The LATTICE clutch uses ±45° diagonal lattice struts instead of cylindrical tu
 **Implementation** (`brick()` in `models/bricks/brick_lib.py`):
 1. Shell: 3-branch construction — has_taper → multi-profile loft, corner_radius > 0 → rounded rect extrude, else → Box (fastest)
 2. Cavity: sharp rectangle subtracted from shell (intentionally NOT rounded — thicker material at corners)
-3. Clutch internals: TUBE → `_build_tubes()` + `_build_ridge()`, LATTICE → `_build_lattice()`, NONE → nothing
+3. Clutch internals: TUBE → inline tube construction + `_build_ridge()`, LATTICE → `_build_lattice()`, NONE → nothing
 4. Fillet threshold: LATTICE → `cavity_z` (strut edges too thin), TUBE/NONE → 0
 5. Studs (with optional stud taper via `_build_stud()`), text
 
@@ -456,6 +456,8 @@ When enabled, 4 directional `flat_rows` sliders (+Y/-Y/+X/-X) + `slope_min_z`.
 - **Cannot use pure 2D sketch approach** for slopes — the implicit cavity can't be trimmed by a plane
 - Studs only on the flat (non-sloped) portion
 - Clutch internals clipped to cavity via `&` — never use `split()` on tubes
+- **Slope hinge uses PITCH-based edges, not CLEARANCE-adjusted shell dimensions.** CLEARANCE only affects the outer shell size; the slope hinge must align with the stud grid. Using CLEARANCE-adjusted edges caused a 0.1mm flat ledge at the slope start.
+- **Clutch intersection volume check**: after `clutch & sloped_cavity`, check `.volume > GEOM_TOL` before adding — empty intersections are truthy in build123d
 
 **Tests**: `models/bricks/tests/test_lattice.py` — 7 tests verifying tangent contact, no overlap, diamond fit, symmetry, wall connectivity, strut count. All pass across brick sizes 1x1 to 8x16.
 
@@ -499,8 +501,8 @@ should be added to `scratchpad.py`. New geometry changes always get VLM rendered
 
 **`models/bricks/common.py`** (shared constants + helpers):
 - `bevel_above_z(part, radius, z_threshold, style, include_bottom, skip_concave)` — fillet or chamfer edges. Uses `filter_by_position(Axis.Z, ...)` for Z-threshold and `Edge.is_interior` for concavity detection. Handles boundary edges (<2 adjacent faces) gracefully.
-- All shared constants: PITCH, STUD_DIAMETER, STUD_HEIGHT, BRICK_HEIGHT, SKIP_CONCAVE, etc.
-- `fillet_above_z` kept as backwards compatibility alias
+- All shared constants: PITCH, STUD_DIAMETER, STUD_HEIGHT, BRICK_HEIGHT, SKIP_CONCAVE, GEOM_TOL, etc.
+- `GEOM_TOL = 0.01` — geometry comparison tolerance (mm), used for degenerate checks, float equality, volume guards
 
 **`models/bricks/brick_lib.py`** (unified geometry):
 - `brick()`, `slope()` — two main functions with clutch type as a parameter
