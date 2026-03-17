@@ -300,9 +300,19 @@ these are converted to the directional system for the geometry functions.
 - `cross_width_y` (int, ≥1, default 1): width of the horizontal (X-axis) arms in Y
 - Cross width sliders only visible when CROSS mode is enabled
 
-**Origin**: center of the `cross_width_x × cross_width_y` center block. When all
-directional params are 0, result is a `cross_width_x × cross_width_y` brick at origin
-(1×1 when widths are 1).
+**Origin**: center of the `cross_width_x × cross_width_y` center block (the junction).
+Origin is ALWAYS at the junction center, never the bounding-box center. For asymmetric
+crosses (e.g. +X=2, -X=0), the bounding box is NOT centered at origin — the origin
+stays at (0,0) where the arms extend from. Grid position (0,0) always maps to world
+(0,0) when widths are 1. When all directional params are 0, result is a
+`cross_width_x × cross_width_y` brick at origin (1×1 when widths are 1).
+
+**Junction centering math**: Each bar has an offset along its own long axis:
+- h_bar (horizontal): `h_offset_x = (plus_x - minus_x) / 2 * PITCH`
+- v_bar (vertical): `v_offset_y = (plus_y - minus_y) / 2 * PITCH`
+These offsets are computed in `_cross_footprint_dims` as `h_offset_i` / `v_offset_j`
+(grid units) — the single source of truth. Shell, cavity, and lattice all read from
+this dict. For symmetric crosses, both offsets are 0.
 
 **2D footprint** = union of two rectangles:
 - **Horizontal bar**: X extent from `-studs_minus_x * PITCH` to `+(cross_width_x + studs_plus_x) * PITCH`,

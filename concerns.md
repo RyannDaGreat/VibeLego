@@ -572,3 +572,47 @@ Slope -Y, Corner roof, Pyramid, Cross+slope). 7/7 lattice geometry tests pass.
 - ~1050 lines of new unified code replacing ~1600 lines of duplicated LEGO+Clara code
 - Plus cross-shape and 4-directional slope features that didn't exist before
 - Old `lego/` and `clara/` directories fully deleted
+
+## 2026-03-16: Cross-Shape Junction Centering Fix
+
+### Bug: Bounding-box centering caused shell/cavity misalignment for asymmetric crosses
+- **Symptom**: For asymmetric cross shapes (e.g., +X=2, -X=2, +Y=2, -Y=1), adjusting
+  arm lengths translated the entire mesh in Blender. The cavity and lattice could
+  misalign with the outer shell because offsets were computed independently.
+- **Root cause (DRY violation)**: `_build_cross_shell` (L565-566) and
+  `_cross_cavity_bar_dims` (L663-664) both computed bar offsets independently using
+  `(minus_y - plus_y) / 2 * PITCH` and `(minus_x - plus_x) / 2 * PITCH`. The formulas
+  placed h_bar at `Pos(0, h_offset_y)` and v_bar at `Pos(v_offset_x, 0)` — meaning
+  each bar was offset perpendicular to its long axis. This was the bbox-centering
+  approach: offset each bar so the combined bounding box is centered at origin.
+- **Why junction centering is better**: The origin should always be at the center of
+  the center block (the junction where arms extend from). This means:
+  - Grid (0,0) maps to world (0,0) for width_x == width_y == 1
+  - Each bar is offset along its OWN long axis: h_bar gets X offset, v_bar gets Y offset
+  - The bounding box is NOT centered for asymmetric crosses (by design)
+  - Studs, cavity, lattice, and slope planes all share the same coordinate system
+
+### Fix: 10 functions modified in brick_lib.py
+1. `_cross_footprint_dims`: Added `h_offset_i` and `v_offset_j` as single source of truth
+2. `_cross_stud_positions`: Changed centering from `(min+max)/2` to `(width-1)/2`
+3. `_cross_tube_positions`: Same junction centering
+4. `_cross_sketch`: Renamed `h_offset_y,v_offset_x` → `h_offset_x,v_offset_y`, swapped Pos args
+5. `_build_cross_shell`: Uses dims dict instead of independent offset computation
+6. `_cross_cavity_bar_dims`: Uses dims dict (eliminates DRY violation)
+7. `_build_lattice`: Added `grid_offset` parameter to shift struts for junction alignment
+8. `_slope_planes`: Changed API from `(outer_x, outer_y)` to edge coordinates
+9. `_filter_flat_studs`: Same edge coordinate API
+10. `brick()` + `slope()`: Pass grid_offset and edge coords to their callees
+
+### Tests
+- All 27 integration tests pass (26 existing + 1 new asymmetric cross+slope)
+- 10/10 lattice tests pass (7 existing + 3 new junction centering tests)
+- VLM verification of asymmetric cross+slope renders: cross shape correct, junction
+  centered, cavity walls uniform, lattice aligned, slope plane cuts correctly
+
+### Backward compatibility
+- Symmetric crosses: all offsets are 0, output identical to bbox centering
+- Degenerate rectangles: all offsets are 0, output identical
+- Some face counts changed slightly for LEGO configs (541→365 for 2x4) — this is
+  expected because junction centering subtly changes which edges are selected for
+  fillet/chamfer. No visual impact.

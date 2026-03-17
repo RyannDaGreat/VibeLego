@@ -95,7 +95,7 @@ Blender opens with a **build123d** sidebar panel (press `N` if hidden). Adjust s
 ### Shapes
 
 - **Rectangle**: Standard rectangular bricks (1x1 to 8x16+)
-- **Cross**: L-shaped, T-shaped, and + shaped bricks via directional arm parameters
+- **Cross**: L-shaped, T-shaped, and + shaped bricks via directional arm parameters. Origin is always at the junction center (where arms extend from), not the bounding-box center.
 
 ### 3D Printing Features (all clutch types)
 
@@ -140,7 +140,8 @@ build123d_tests/
       brick.py              # Default entry point
       collection.py         # Display grid of various brick types
       tests/
-        test_lattice.py     # 7 lattice geometry verification tests
+        test_lattice.py     # 10 geometry + junction centering tests
+        test_integration.py # 27 full-pipeline integration tests
   build123d/                # Library (git submodule, dev branch)
 ```
 
@@ -165,17 +166,17 @@ Clara adds a lattice step: 2D rectangles at ±45° via `Locations([Pos * Rot])`,
 ## Tests
 
 ```bash
-# Integration tests (20 configs: all clutch types, shapes, slopes, combos)
+# Integration tests (27 configs: all clutch types, shapes, slopes, combos)
 uv run models/bricks/tests/test_integration.py
 
-# Lattice geometry tests (7 pure math tests)
+# Lattice + junction centering tests (10 pure math tests)
 uv run models/bricks/tests/test_lattice.py
 
 # Regenerate README images
 uv run generate_readme.py
 ```
 
-The lattice tests verify: tangent contact with studs, no overlap, diamond fit, symmetry, wall connectivity, and correct strut count across brick sizes from 1x1 to 8x16.
+The lattice tests verify: tangent contact with studs, no overlap, diamond fit, symmetry, wall connectivity, correct strut count across brick sizes from 1x1 to 8x16, and junction centering for asymmetric cross shapes.
 
 ## License
 
