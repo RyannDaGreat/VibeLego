@@ -77,6 +77,8 @@ def main():
             response = {"ok": True}
             if info:
                 response.update(info)
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception as e:
             response = {"ok": False, "error": f"{type(e).__name__}: {e}"}
 

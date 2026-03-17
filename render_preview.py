@@ -104,6 +104,7 @@ def create_plastic_material():
         bpy.types.Material: The plastic material.
     """
     mat = bpy.data.materials.new(name="Plastic")
+    mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = (0.95, 0.95, 0.95, 1.0)
     bsdf.inputs["Roughness"].default_value = 0.3

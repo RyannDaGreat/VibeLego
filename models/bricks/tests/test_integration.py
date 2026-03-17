@@ -12,6 +12,7 @@ Usage:
 import os
 import sys
 import tempfile
+import traceback
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(script_dir, ".."))
@@ -146,6 +147,7 @@ if __name__ == "__main__":
             print(f"  PASS {name}: {info['faces']} faces, build={info['build']:.2f}s")
             passed += 1
         except Exception as e:
+            traceback.print_exc()
             print(f"  FAIL {name}: {e}")
             failed += 1
 
