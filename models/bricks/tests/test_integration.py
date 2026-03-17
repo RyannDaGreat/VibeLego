@@ -118,6 +118,13 @@ CONFIGS = [
                        "studs_plus_y": 3, "studs_minus_y": 0,
                        "cross_width_x": 1, "cross_width_y": 1,
                        "enable_slope": True, "slope_plus_y": 2}),
+
+    # Asymmetric cross + slope (junction centering regression test)
+    ("Asym cross slope", {**_NO_CLARA, "shape_mode": "CROSS",
+                           "studs_plus_x": 2, "studs_minus_x": 2,
+                           "studs_plus_y": 2, "studs_minus_y": 1,
+                           "cross_width_x": 1, "cross_width_y": 1,
+                           "enable_slope": True, "slope_plus_y": 3}),
 ]
 
 
