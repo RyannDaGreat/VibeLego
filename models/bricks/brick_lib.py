@@ -9,7 +9,9 @@ Architecture: shell → clutch internals → studs → fillet → text.
 Cross-shape bricks (L/T/+) and 4-directional slopes are supported.
 
 Coordinate convention: brick sits on XY plane, studs point up (+Z).
-Origin at the center-bottom of the brick body (not including studs).
+Origin at the center of the center block (junction center), bottom of body.
+For cross shapes, grid (0,0) always maps to world (0,0) — the bounding
+box is NOT centered at origin for asymmetric crosses.
 """
 
 import math
@@ -183,12 +185,15 @@ def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
 # ── Clutch builders ──────────────────────────────────────────────────────────
 
 def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z,
-                   clip_rects=None):
+                   clip_rects=None, grid_offset=(0.0, 0.0)):
     """
     Pure function, specific. Build diagonal lattice struts as a standalone Part.
 
     +/-45 deg crisscross struts forming diamond openings. Each diamond's
     inscribed circle = STUD_DIAMETER for exact stud fit.
+
+    grid_offset shifts strut centers so the lattice stays aligned with
+    junction-centered studs. For symmetric shapes offset is (0, 0).
 
     clip_rects overrides the default bounding-box clip. Each rect is
     (center_x, center_y, width, height). For cross shapes, one rect per arm
@@ -203,14 +208,16 @@ def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z,
         cavity_z (float): Cavity height (extrusion depth).
         clip_rects (list[tuple] | None): Per-arm clip rects [(cx, cy, w, h), ...].
             None = single bounding-box rectangle (default, for simple rectangles).
+        grid_offset (tuple[float, float]): (gx, gy) shift for strut centers
+            to align with junction-centered stud grid. Default (0, 0).
 
     Returns:
         Part: Lattice geometry, origin at (0, 0, 0).
 
     Examples:
         >>> # _build_lattice(2, 4, 12.8, 28.8, 8.6)
-        >>> # _build_lattice(4, 4, 28.8, 28.8, 8.6,
-        >>> #     clip_rects=[(0, -12, 28.8, 4.8), (-12, 0, 4.8, 28.8)])
+        >>> # _build_lattice(3, 1, 20.8, 4.8, 8.6,
+        >>> #     grid_offset=(8.0, 0.0))
     """
     strut_thickness = PITCH / math.sqrt(2) - STUD_DIAMETER
     n_struts = studs_x + studs_y
@@ -220,10 +227,11 @@ def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z,
 
     def _add_struts():
         """Command, specific. Add lattice strut rectangles to current sketch."""
+        gx, gy = grid_offset
         for c in c_values:
-            with Locations([Pos(-c / 2, c / 2) * Rot(0, 0, 45)]):
+            with Locations([Pos(-c / 2 + gx, c / 2 + gy) * Rot(0, 0, 45)]):
                 Rectangle(strut_len, strut_thickness)
-            with Locations([Pos(c / 2, c / 2) * Rot(0, 0, -45)]):
+            with Locations([Pos(c / 2 + gx, c / 2 + gy) * Rot(0, 0, -45)]):
                 Rectangle(strut_len, strut_thickness)
 
     if clip_rects is None or len(clip_rects) == 1:
@@ -334,7 +342,8 @@ def _cross_stud_positions(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
 
     Grid positions are integer (i, j) indices. The center block spans
     (0..width_x-1) x (0..width_y-1). Positions are converted to world coords
-    by centering on the footprint bounding box and scaling by PITCH.
+    by centering on the junction (center block center) and scaling by PITCH.
+    Grid (0,0) always maps to world (0,0) when width_x == width_y == 1.
 
     Args:
         plus_x (int): Arm length in +X direction (studs beyond center block).
@@ -363,11 +372,9 @@ def _cross_stud_positions(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
         for j in range(-minus_y, width_y + plus_y):
             positions.add((i, j))
 
-    # Compute bounding box to center the footprint
-    all_i = [p[0] for p in positions]
-    all_j = [p[1] for p in positions]
-    center_i = (min(all_i) + max(all_i)) / 2
-    center_j = (min(all_j) + max(all_j)) / 2
+    # Junction centering: origin at center of center block
+    center_i = (width_x - 1) / 2
+    center_j = (width_y - 1) / 2
 
     return [((i - center_i) * PITCH, (j - center_j) * PITCH)
             for i, j in positions]
@@ -420,9 +427,9 @@ def _cross_tube_positions(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
                    [(i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1)]):
                 tube_grid.append((i + 0.5, j + 0.5))
 
-    # Center on footprint bounding box
-    center_i = (min(all_i) + max(all_i)) / 2
-    center_j = (min(all_j) + max(all_j)) / 2
+    # Junction centering: origin at center of center block
+    center_i = (width_x - 1) / 2
+    center_j = (width_y - 1) / 2
 
     return [((i - center_i) * PITCH, (j - center_j) * PITCH)
             for i, j in tube_grid]
@@ -430,17 +437,28 @@ def _cross_tube_positions(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
 
 def _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
     """
-    Pure function, general. Compute the bounding box dimensions and bar
-    dimensions of a cross-shaped footprint.
+    Pure function, general. Compute the bounding box dimensions, bar
+    dimensions, and junction-centered offsets of a cross-shaped footprint.
+
+    Origin is at the center of the center block (junction), not the
+    bounding-box center.  h_offset_i / v_offset_j give the offset of
+    each bar's center from the junction in grid units (multiply by PITCH
+    for world coords).
 
     Returns:
         dict: Keys: total_x, total_y (bounding box in studs),
-              h_bar_x, h_bar_y, v_bar_x, v_bar_y (bar dimensions in studs).
+              h_bar_x, h_bar_y, v_bar_x, v_bar_y (bar dimensions in studs),
+              h_offset_i, v_offset_j (bar offsets from junction in grid units).
 
     Examples:
         >>> d = _cross_footprint_dims(1, 1, 1, 1, 1, 1)
         >>> d['total_x'], d['total_y']
         (3, 3)
+        >>> d['h_offset_i'], d['v_offset_j']
+        (0.0, 0.0)
+        >>> d2 = _cross_footprint_dims(2, 0, 0, 0, 1, 1)
+        >>> d2['h_offset_i']
+        1.0
     """
     total_x = minus_x + width_x + plus_x
     total_y = minus_y + width_y + plus_y
@@ -451,6 +469,8 @@ def _cross_footprint_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
         "h_bar_y": width_y,
         "v_bar_x": width_x,
         "v_bar_y": total_y,
+        "h_offset_i": (plus_x - minus_x) / 2,
+        "v_offset_j": (plus_y - minus_y) / 2,
     }
 
 
@@ -488,18 +508,20 @@ def _cross_concave_vertices(sketch, v_w, h_h):
     return convex, concave
 
 
-def _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+def _cross_sketch(h_w, h_h, v_w, v_h, h_offset_x, v_offset_y,
                   cr=0, cr_skip_concave=True):
     """
     Pure function, specific. Build a 2D cross footprint sketch (two rectangles).
 
     Must be called inside a BuildSketch context. Optionally fillets vertices.
+    In junction-centered coords, h_bar gets an X offset (asymmetric extension
+    along its long axis) and v_bar gets a Y offset.
 
     Args:
         h_w, h_h (float): Horizontal bar width/height.
         v_w, v_h (float): Vertical bar width/height.
-        h_offset_y (float): Horizontal bar Y offset from center.
-        v_offset_x (float): Vertical bar X offset from center.
+        h_offset_x (float): Horizontal bar X offset from junction.
+        v_offset_y (float): Vertical bar Y offset from junction.
         cr (float): Corner radius. 0 = sharp.
         cr_skip_concave (bool): Skip concave corners.
 
@@ -508,14 +530,14 @@ def _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
     """
     # Degenerate rectangle: single bar, use simple rounded rect
     is_degenerate = (abs(h_w - v_w) < 0.01 and abs(h_h - v_h) < 0.01
-                     and abs(h_offset_y) < 0.01 and abs(v_offset_x) < 0.01)
+                     and abs(h_offset_x) < 0.01 and abs(v_offset_y) < 0.01)
     if is_degenerate:
         _rounded_rect(h_w, h_h, _clamp_cr(cr, h_w, h_h) if cr > 0 else 0)
         return
 
-    with Locations([Pos(0, h_offset_y)]):
+    with Locations([Pos(h_offset_x, 0)]):
         Rectangle(h_w, h_h)
-    with Locations([Pos(v_offset_x, 0)]):
+    with Locations([Pos(0, v_offset_y)]):
         Rectangle(v_w, v_h, mode=Mode.ADD)
     if cr > 0:
         sk = BuildSketch._get_context()
@@ -561,9 +583,9 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     v_w = dims["v_bar_x"] * PITCH - 2 * CLEARANCE
     v_h = dims["v_bar_y"] * PITCH - 2 * CLEARANCE
 
-    # Offsets of each bar center from BBox center
-    h_offset_y = (minus_y - plus_y) / 2 * PITCH
-    v_offset_x = (minus_x - plus_x) / 2 * PITCH
+    # Junction-centered offsets (single source of truth from dims)
+    h_offset_x = dims["h_offset_i"] * PITCH
+    v_offset_y = dims["v_offset_j"] * PITCH
 
     cr = _clamp_cr(corner_radius, min(h_w, v_w), min(h_h, v_h)) if corner_radius > 0 else 0
     has_taper = taper_height > 0 and taper_inset > 0
@@ -574,11 +596,11 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
         with BuildPart() as shell:
             # Base sketch (Z=0)
             with BuildSketch(Plane.XY):
-                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_x, v_offset_y,
                               cr, cr_skip_concave)
             # Sketch at taper start (same size)
             with BuildSketch(Plane.XY.offset(taper_start_z)):
-                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_x, v_offset_y,
                               cr, cr_skip_concave)
             # Intermediate sketches for curved taper
             if taper_curve == "CURVED":
@@ -592,7 +614,7 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
                     tvh = v_h - 2 * inset
                     tcr = _clamp_cr(cr, min(tw, tvw), min(th, tvh)) if cr > 0 else 0
                     with BuildSketch(Plane.XY.offset(z)):
-                        _cross_sketch(tw, th, tvw, tvh, h_offset_y, v_offset_x,
+                        _cross_sketch(tw, th, tvw, tvh, h_offset_x, v_offset_y,
                                       tcr, cr_skip_concave)
             # Top sketch (inset)
             top_hw = h_w - 2 * taper_inset
@@ -602,7 +624,7 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
             top_cr = _clamp_cr(cr, min(top_hw, top_vw), min(top_hh, top_vh)) if cr > 0 else 0
             with BuildSketch(Plane.XY.offset(height)):
                 _cross_sketch(top_hw, top_hh, top_vw, top_vh,
-                              h_offset_y, v_offset_x, top_cr, cr_skip_concave)
+                              h_offset_x, v_offset_y, top_cr, cr_skip_concave)
             loft(ruled=True)
         return shell.part
 
@@ -610,22 +632,22 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
         # 2D sketch + fillet + extrude
         with BuildPart() as shell:
             with BuildSketch():
-                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_y, v_offset_x,
+                _cross_sketch(h_w, h_h, v_w, v_h, h_offset_x, v_offset_y,
                               cr, cr_skip_concave)
             extrude(amount=height)
         return shell.part
 
     # No corner radius, no taper: fast Box path
     is_degenerate = (abs(h_w - v_w) < 0.01 and abs(h_h - v_h) < 0.01
-                     and abs(h_offset_y) < 0.01 and abs(v_offset_x) < 0.01)
+                     and abs(h_offset_x) < 0.01 and abs(v_offset_y) < 0.01)
     with BuildPart() as shell:
         if is_degenerate:
             Box(h_w, h_h, height,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
         else:
-            Pos(0, h_offset_y, 0) * Box(h_w, h_h, height,
+            Pos(h_offset_x, 0, 0) * Box(h_w, h_h, height,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
-            Pos(v_offset_x, 0, 0) * Box(v_w, v_h, height,
+            Pos(0, v_offset_y, 0) * Box(v_w, v_h, height,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
     return shell.part
 
@@ -660,14 +682,15 @@ def _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
     h_h = dims["h_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
     v_w = dims["v_bar_x"] * PITCH - 2 * CLEARANCE - 2 * wt
     v_h = dims["v_bar_y"] * PITCH - 2 * CLEARANCE - 2 * wt
-    h_offset_y = (minus_y - plus_y) / 2 * PITCH
-    v_offset_x = (minus_x - plus_x) / 2 * PITCH
+    # Junction-centered offsets (single source of truth from dims)
+    h_offset_x = dims["h_offset_i"] * PITCH
+    v_offset_y = dims["v_offset_j"] * PITCH
 
     bars = []
     if h_w > 0 and h_h > 0:
-        bars.append((0.0, h_offset_y, h_w, h_h))
+        bars.append((h_offset_x, 0.0, h_w, h_h))
     if v_w > 0 and v_h > 0:
-        bars.append((v_offset_x, 0.0, v_w, v_h))
+        bars.append((0.0, v_offset_y, v_w, v_h))
     # Deduplicate: degenerate rectangle has h_bar == v_bar
     if len(bars) == 2 and bars[0] == bars[1]:
         bars = bars[:1]
@@ -704,15 +727,22 @@ def _build_cross_cavity(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
 
 # ── Slope plane helpers ──────────────────────────────────────────────────────
 
-def _slope_planes(direction, outer_x, outer_y, height, flat_rows, slope_min_z):
+def _slope_planes(direction, edge_minus_x, edge_plus_x, edge_minus_y,
+                  edge_plus_y, height, flat_rows, slope_min_z):
     """
     Pure function, general. Compute cut plane and cavity cut plane for a slope
     in the given direction.
 
+    Uses edge coordinates (not symmetric halves) so the brick need not be
+    centered at the origin. For junction-centered bricks, edges are computed
+    from bar offset + half-width.
+
     Args:
         direction (str): "+Y", "-Y", "+X", "-X".
-        outer_x (float): Outer shell width.
-        outer_y (float): Outer shell depth.
+        edge_minus_x (float): Shell left edge (most negative X).
+        edge_plus_x (float): Shell right edge (most positive X).
+        edge_minus_y (float): Shell front edge (most negative Y).
+        edge_plus_y (float): Shell back edge (most positive Y).
         height (float): Brick height.
         flat_rows (int): Number of flat stud rows before slope begins.
         slope_min_z (float): Z height where slope terminates (bottom).
@@ -721,35 +751,32 @@ def _slope_planes(direction, outer_x, outer_y, height, flat_rows, slope_min_z):
         tuple[Plane, Plane]: (cut_plane, cavity_cut_plane).
 
     Examples:
-        >>> # _slope_planes("+Y", 15.6, 31.6, 9.6, 1, 1.5)
+        >>> # _slope_planes("+Y", -7.8, 7.8, -15.8, 15.8, 9.6, 1, 1.5)
     """
-    half_x = outer_x / 2
-    half_y = outer_y / 2
-
     if direction == "+Y":
-        hinge = -half_y + flat_rows * PITCH
-        span = half_y - hinge
+        hinge = edge_minus_y + flat_rows * PITCH
+        span = edge_plus_y - hinge
         dz = height - slope_min_z
         normal = (0, dz, span)
         origin = (0, hinge, height)
         x_dir = (1, 0, 0)
     elif direction == "-Y":
-        hinge = half_y - flat_rows * PITCH
-        span = hinge - (-half_y)
+        hinge = edge_plus_y - flat_rows * PITCH
+        span = hinge - edge_minus_y
         dz = height - slope_min_z
         normal = (0, -dz, span)
         origin = (0, hinge, height)
         x_dir = (-1, 0, 0)
     elif direction == "+X":
-        hinge = -half_x + flat_rows * PITCH
-        span = half_x - hinge
+        hinge = edge_minus_x + flat_rows * PITCH
+        span = edge_plus_x - hinge
         dz = height - slope_min_z
         normal = (dz, 0, span)
         origin = (hinge, 0, height)
         x_dir = (0, 1, 0)
     elif direction == "-X":
-        hinge = half_x - flat_rows * PITCH
-        span = hinge - (-half_x)
+        hinge = edge_plus_x - flat_rows * PITCH
+        span = hinge - edge_minus_x
         dz = height - slope_min_z
         normal = (-dz, 0, span)
         origin = (hinge, 0, height)
@@ -971,9 +998,12 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
         elif clutch == "LATTICE":
             inner_x = sx * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
             inner_y = sy * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
+            grid_off = (dims["h_offset_i"] * PITCH,
+                        dims["v_offset_j"] * PITCH)
             if inner_x > 0 and inner_y > 0:
                 add(_build_lattice(sx, sy, inner_x, inner_y, cavity_z,
-                                   clip_rects=cavity_bars))
+                                   clip_rects=cavity_bars,
+                                   grid_offset=grid_off))
 
         # Studs
         _place_studs(stud_positions, height,
@@ -1062,15 +1092,22 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
     cavity_z = height - FLOOR_THICKNESS
     fillet_z = cavity_z if clutch == "LATTICE" else 0.0
 
-    # Bounding box outer dimensions for slope plane computation
+    # Junction-centered edge coordinates for slope planes
+    h_offset_x = dims["h_offset_i"] * PITCH
+    v_offset_y = dims["v_offset_j"] * PITCH
     bbox_x = sx * PITCH - 2 * CLEARANCE
     bbox_y = sy * PITCH - 2 * CLEARANCE
+    edge_minus_x = h_offset_x - bbox_x / 2
+    edge_plus_x = h_offset_x + bbox_x / 2
+    edge_minus_y = v_offset_y - bbox_y / 2
+    edge_plus_y = v_offset_y + bbox_y / 2
 
     # Compute all slope planes
     cut_planes = []
     cavity_cut_planes = []
     for direction, flat_rows in active_slopes:
-        cp, ccp = _slope_planes(direction, bbox_x, bbox_y, height,
+        cp, ccp = _slope_planes(direction, edge_minus_x, edge_plus_x,
+                                edge_minus_y, edge_plus_y, height,
                                 flat_rows, slope_min_z)
         cut_planes.append(cp)
         cavity_cut_planes.append(ccp)
@@ -1099,6 +1136,7 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
     # Clutch internals — per-arm 2D clip, then 3D slope clip
     cavity_bars = _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y,
                                          cross_width_x, cross_width_y)
+    grid_off = (h_offset_x, v_offset_y)
     clipped_clutch = None
     if clutch == "TUBE":
         tube_positions = _cross_tube_positions(plus_x, minus_x, plus_y, minus_y,
@@ -1116,13 +1154,15 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
         inner_y = sy * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
         if inner_x > 0 and inner_y > 0:
             lattice = _build_lattice(sx, sy, inner_x, inner_y, cavity_z,
-                                     clip_rects=cavity_bars)
+                                     clip_rects=cavity_bars,
+                                     grid_offset=grid_off)
             clipped_clutch = lattice & sloped_cavity
 
     # Flat stud positions (all positions filtered by slope hinges)
     all_stud_xy = _cross_stud_positions(plus_x, minus_x, plus_y, minus_y,
                                         cross_width_x, cross_width_y)
-    flat_xy = _filter_flat_studs(all_stud_xy, bbox_x, bbox_y, active_slopes)
+    flat_xy = _filter_flat_studs(all_stud_xy, edge_minus_x, edge_plus_x,
+                                 edge_minus_y, edge_plus_y, active_slopes)
 
     # Assemble
     with BuildPart() as bp:
@@ -1141,7 +1181,8 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
     return _apply_text(result, flat_xy, height)
 
 
-def _filter_flat_studs(stud_positions, bbox_x, bbox_y, active_slopes):
+def _filter_flat_studs(stud_positions, edge_minus_x, edge_plus_x,
+                       edge_minus_y, edge_plus_y, active_slopes):
     """
     Pure function, specific. Filter stud positions to those on the flat deck
     of a sloped brick with multiple active slopes.
@@ -1150,10 +1191,15 @@ def _filter_flat_studs(stud_positions, bbox_x, bbox_y, active_slopes):
     Works for both rectangle and cross shapes — stud positions are pre-computed
     by _cross_stud_positions.
 
+    Uses edge coordinates (not symmetric halves) so the brick need not be
+    centered at the origin.
+
     Args:
         stud_positions (list[tuple]): All (x, y) stud positions.
-        bbox_x (float): Bounding box outer width.
-        bbox_y (float): Bounding box outer depth.
+        edge_minus_x (float): Shell left edge.
+        edge_plus_x (float): Shell right edge.
+        edge_minus_y (float): Shell front edge.
+        edge_plus_y (float): Shell back edge.
         active_slopes (list[tuple]): List of (direction, flat_rows) tuples.
 
     Returns:
@@ -1161,30 +1207,27 @@ def _filter_flat_studs(stud_positions, bbox_x, bbox_y, active_slopes):
 
     Examples:
         >>> _filter_flat_studs([(0, -12), (0, -4), (0, 4), (0, 12)],
-        ...                    15.6, 31.6, [("+Y", 1)])
+        ...                    -7.8, 7.8, -15.8, 15.8, [("+Y", 1)])
         [(0, -12), (0, -4)]
     """
-    half_x = bbox_x / 2
-    half_y = bbox_y / 2
-
     flat = []
     for x, y in stud_positions:
         is_flat = True
         for direction, flat_rows in active_slopes:
             if direction == "+Y":
-                hinge_y = -half_y + flat_rows * PITCH
+                hinge_y = edge_minus_y + flat_rows * PITCH
                 if y > hinge_y - PITCH / 2 + 0.01:
                     is_flat = False
             elif direction == "-Y":
-                hinge_y = half_y - flat_rows * PITCH
+                hinge_y = edge_plus_y - flat_rows * PITCH
                 if y < hinge_y + PITCH / 2 - 0.01:
                     is_flat = False
             elif direction == "+X":
-                hinge_x = -half_x + flat_rows * PITCH
+                hinge_x = edge_minus_x + flat_rows * PITCH
                 if x > hinge_x - PITCH / 2 + 0.01:
                     is_flat = False
             elif direction == "-X":
-                hinge_x = half_x - flat_rows * PITCH
+                hinge_x = edge_plus_x - flat_rows * PITCH
                 if x < hinge_x + PITCH / 2 - 0.01:
                     is_flat = False
         if is_flat:
