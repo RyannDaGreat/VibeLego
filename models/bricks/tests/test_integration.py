@@ -126,6 +126,11 @@ CONFIGS = [
                            "studs_plus_y": 2, "studs_minus_y": 1,
                            "cross_width_x": 1, "cross_width_y": 1,
                            "enable_slope": True, "slope_plus_y": 3}),
+
+    # HEIGHT parameter passthrough (regression: slider was ignored)
+    ("Custom height", {**_NO_CLARA, "studs_x": 2, "studs_y": 2, "BRICK_HEIGHT": 5.0}),
+    ("Plate height slope", {**_NO_CLARA, "studs_x": 2, "studs_y": 4, "BRICK_HEIGHT": 3.2,
+                             "enable_slope": True, "slope_plus_y": 2}),
 ]
 
 

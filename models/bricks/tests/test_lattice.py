@@ -380,6 +380,182 @@ def test_junction_equals_bbox_for_symmetric():
         print(f"  ({px},{mx},{py},{my},{wx},{wy}): {len(junction)} studs match ✓")
 
 
+# ── Slope hinge alignment tests ──────────────────────────────────────────────
+
+GEOM_TOL = 0.01
+
+
+def slope_hinge_edges(sx, sy, h_offset_x, v_offset_y, use_clearance):
+    """
+    Pure function, general. Compute slope hinge edge coordinates.
+
+    Mirrors the edge computation in slope() from brick_lib.py.
+    Returns (edge_minus_x, edge_plus_x, edge_minus_y, edge_plus_y).
+
+    Args:
+        sx, sy (int): Total stud counts.
+        h_offset_x (float): Horizontal bar offset (mm).
+        v_offset_y (float): Vertical bar offset (mm).
+        use_clearance (bool): If True, use CLEARANCE-adjusted edges (old bug).
+
+    Returns:
+        tuple[float, float, float, float]: Edge coordinates.
+
+    Examples:
+        >>> slope_hinge_edges(2, 4, 0, 0, False)
+        (-8.0, 8.0, -16.0, 16.0)
+        >>> slope_hinge_edges(2, 4, 0, 0, True)
+        (-7.9, 7.9, -15.9, 15.9)
+    """
+    if use_clearance:
+        bbox_x = sx * PITCH - 2 * CLEARANCE
+        bbox_y = sy * PITCH - 2 * CLEARANCE
+    else:
+        bbox_x = sx * PITCH
+        bbox_y = sy * PITCH
+    return (
+        h_offset_x - bbox_x / 2,
+        h_offset_x + bbox_x / 2,
+        v_offset_y - bbox_y / 2,
+        v_offset_y + bbox_y / 2,
+    )
+
+
+def filter_flat_studs(stud_positions, edge_minus_x, edge_plus_x,
+                      edge_minus_y, edge_plus_y, active_slopes):
+    """
+    Pure function, general. Filter studs to flat deck positions.
+
+    Mirrors _filter_flat_studs from brick_lib.py without build123d deps.
+
+    Args:
+        stud_positions (list[tuple]): All (x, y) stud positions.
+        edge_minus_x, edge_plus_x (float): Shell X edges.
+        edge_minus_y, edge_plus_y (float): Shell Y edges.
+        active_slopes (list[tuple]): (direction, flat_rows) tuples.
+
+    Returns:
+        list[tuple[float, float]]: Flat stud positions.
+
+    Examples:
+        >>> filter_flat_studs([(0, -12), (0, -4), (0, 4), (0, 12)],
+        ...                   -8.0, 8.0, -16.0, 16.0, [("+Y", 1)])
+        [(0, -12), (0, -4)]
+    """
+    flat = []
+    for x, y in stud_positions:
+        is_flat = True
+        for direction, flat_rows in active_slopes:
+            if direction == "+Y":
+                hinge_y = edge_minus_y + flat_rows * PITCH
+                if y > hinge_y - PITCH / 2 + GEOM_TOL:
+                    is_flat = False
+            elif direction == "-Y":
+                hinge_y = edge_plus_y - flat_rows * PITCH
+                if y < hinge_y + PITCH / 2 - GEOM_TOL:
+                    is_flat = False
+            elif direction == "+X":
+                hinge_x = edge_minus_x + flat_rows * PITCH
+                if x > hinge_x - PITCH / 2 + GEOM_TOL:
+                    is_flat = False
+            elif direction == "-X":
+                hinge_x = edge_plus_x - flat_rows * PITCH
+                if x < hinge_x + PITCH / 2 - GEOM_TOL:
+                    is_flat = False
+        if is_flat:
+            flat.append((x, y))
+    return flat
+
+
+def test_slope_hinge_grid_aligned():
+    """Slope hinge edges use PITCH formula (no CLEARANCE term), differ from shell edges."""
+    configs = [
+        # (sx, sy, h_offset_x, v_offset_y)
+        (2, 4, 0.0, 0.0),        # symmetric rectangle
+        (4, 4, 0.0, 0.0),        # square
+        (3, 5, 8.0, 4.0),        # asymmetric cross offsets
+    ]
+    for sx, sy, hx, vy in configs:
+        edges_pitch = slope_hinge_edges(sx, sy, hx, vy, use_clearance=False)
+        edges_clear = slope_hinge_edges(sx, sy, hx, vy, use_clearance=True)
+
+        # PITCH-based edges differ from CLEARANCE-based by exactly CLEARANCE
+        for ep, ec in zip(edges_pitch, edges_clear):
+            diff = abs(ep) - abs(ec)
+            assert abs(diff - CLEARANCE) < TOLERANCE, (
+                f"CLEARANCE offset mismatch: |{ep}| - |{ec}| = {diff}, expected {CLEARANCE}"
+            )
+
+        # Verify the formula: edge = offset ± total * PITCH / 2
+        assert abs(edges_pitch[0] - (hx - sx * PITCH / 2)) < TOLERANCE
+        assert abs(edges_pitch[1] - (hx + sx * PITCH / 2)) < TOLERANCE
+        assert abs(edges_pitch[2] - (vy - sy * PITCH / 2)) < TOLERANCE
+        assert abs(edges_pitch[3] - (vy + sy * PITCH / 2)) < TOLERANCE
+        print(f"  {sx}x{sy} offset=({hx},{vy}): PITCH edges correct ✓")
+
+
+def test_filter_flat_studs_pitch_vs_clearance():
+    """_filter_flat_studs with PITCH-based edges classifies studs correctly."""
+    # 2x4 brick, 3 sloped rows in +Y → flat_rows = 1
+    studs = [(0, y) for y in [-12, -4, 4, 12]]
+    active = [("+Y", 1)]
+
+    # With PITCH-based edges (correct): hinge_y = -16 + 8 = -8
+    # Stud at y=-12: -12 > -8 - 4 + 0.01 = -11.99? No → flat ✓
+    # Stud at y=-4:  -4 > -11.99? Yes → not flat
+    edges_p = slope_hinge_edges(2, 4, 0, 0, use_clearance=False)
+    flat_p = filter_flat_studs(studs, *edges_p, active)
+
+    # With CLEARANCE-based edges (old bug): hinge_y = -15.9 + 8 = -7.9
+    # Stud classification changes at boundary
+    edges_c = slope_hinge_edges(2, 4, 0, 0, use_clearance=True)
+    flat_c = filter_flat_studs(studs, *edges_c, active)
+
+    # PITCH-based: 1 flat stud (only y=-12)
+    assert len(flat_p) == 1, f"PITCH: expected 1 flat, got {len(flat_p)}: {flat_p}"
+    assert flat_p[0][1] == -12, f"PITCH: expected y=-12, got {flat_p[0]}"
+    print(f"  PITCH-based: {len(flat_p)} flat stud(s) ✓")
+
+    # Both should give same count here (boundary doesn't change for this config)
+    # but the hinge position differs by 0.1mm
+    print(f"  CLEARANCE-based: {len(flat_c)} flat stud(s)")
+    print(f"  Hinge positions: PITCH={edges_p[2] + 1*PITCH}, CLEAR={edges_c[2] + 1*PITCH}")
+
+
+def test_filter_flat_studs_multi_direction():
+    """Multiple active slopes correctly intersect flat regions."""
+    # 4x4 brick, corner roof: -X=3, -Y=3 → each has flat_rows=1
+    # "-X" slope descends toward -X → flat portion at +X end
+    # "-Y" slope descends toward -Y → flat portion at +Y end
+    studs = [(x, y) for x in [-12, -4, 4, 12] for y in [-12, -4, 4, 12]]
+    active = [("-X", 1), ("-Y", 1)]
+    edges = slope_hinge_edges(4, 4, 0, 0, use_clearance=False)
+    flat = filter_flat_studs(studs, *edges, active)
+
+    # -X slope: hinge_x = 16 - 1*8 = 8. NOT flat if x < 8 + 4 - 0.01 = 11.99
+    # → only x=12 survives
+    # -Y slope: hinge_y = 16 - 1*8 = 8. NOT flat if y < 8 + 4 - 0.01 = 11.99
+    # → only y=12 survives
+    # Flat = intersection: only (12, 12)
+    expected_count = 1
+    assert len(flat) == expected_count, (
+        f"Expected {expected_count} flat stud, got {len(flat)}: {flat}"
+    )
+    assert flat[0] == (12, 12), f"Expected (12,12), got {flat[0]}"
+    print(f"  Corner roof 4x4 (-X,-Y): {len(flat)} flat stud at +X,+Y corner ✓")
+
+    # Also test +X=3, +Y=3 → flat portion at -X,-Y end
+    active2 = [("+X", 1), ("+Y", 1)]
+    flat2 = filter_flat_studs(studs, *edges, active2)
+    # +X: hinge_x = -16 + 8 = -8. NOT flat if x > -8 - 4 + 0.01 = -11.99
+    # → only x=-12 survives
+    # +Y: hinge_y = -16 + 8 = -8. NOT flat if y > -8 - 4 + 0.01 = -11.99
+    # → only y=-12 survives
+    assert len(flat2) == 1, f"Expected 1, got {len(flat2)}: {flat2}"
+    assert flat2[0] == (-12, -12), f"Expected (-12,-12), got {flat2[0]}"
+    print(f"  Corner roof 4x4 (+X,+Y): {len(flat2)} flat stud at -X,-Y corner ✓")
+
+
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 TESTS = [
@@ -393,6 +569,9 @@ TESTS = [
     test_cross_stud_junction_centering,
     test_cross_cavity_bar_offsets,
     test_junction_equals_bbox_for_symmetric,
+    test_slope_hinge_grid_aligned,
+    test_filter_flat_studs_pitch_vs_clearance,
+    test_filter_flat_studs_multi_direction,
 ]
 
 if __name__ == "__main__":
