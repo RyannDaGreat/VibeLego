@@ -153,7 +153,7 @@ SECTIONS = [
             },
             {
                 "key": "stud_height", "json_key": "STUD_HEIGHT", "type": "float",
-                "label": "Height", "default": 4.0, "min": 0.5, "max": 8.0,
+                "label": "Height", "default": 1.8, "min": 0.5, "max": 8.0,
                 "step": 10, "precision": 2,
             },
         ],

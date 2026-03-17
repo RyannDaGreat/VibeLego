@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from build123d import (
     Box, Circle, Cylinder, Rectangle, RectangleRounded, Pos, Rot, Plane,
     Align, Keep, Mode, FontStyle, Axis,
-    BuildPart, BuildSketch, BuildLine, add, Locations, GridLocations,
+    BuildPart, BuildSketch, BuildLine, add, Locations,
     Line, Polyline, TangentArc, make_face,
     Text, extrude, loft, revolve, split, fillet as bd_fillet,
 )
@@ -34,7 +34,7 @@ from common import (
     SKIP_CONCAVE, CR_SKIP_CONCAVE, ENABLE_STUDS, ENABLE_TEXT,
     STUD_TEXT, STUD_TEXT_FONT, STUD_TEXT_FONT_SIZE, STUD_TEXT_HEIGHT,
     STUD_TEXT_ROTATION,
-    bevel_above_z,
+    GEOM_TOL, bevel_above_z,
 )
 
 # ── LEGO tube constants (mm) ────────────────────────────────────────────────
@@ -104,7 +104,7 @@ def _clamp_cr(cr, w, h):
     """
     if cr <= 0:
         return 0
-    return max(min(cr, w / 2 - 0.01, h / 2 - 0.01), 0)
+    return max(min(cr, w / 2 - GEOM_TOL, h / 2 - GEOM_TOL), 0)
 
 
 def _rounded_rect(w, h, r):
@@ -160,13 +160,13 @@ def _build_stud(radius, total_height, taper_height=0, taper_inset=0,
 
     th = min(taper_height, total_height)
     taper_start_z = total_height - th
-    top_radius = max(radius - taper_inset, 0.01)
+    top_radius = max(radius - taper_inset, GEOM_TOL)
 
     # Revolve a 2D profile in the XZ plane around Z axis
     with BuildPart() as stud:
         with BuildSketch(Plane.XZ):
             with BuildLine():
-                if taper_start_z > 0.01:
+                if taper_start_z > GEOM_TOL:
                     Polyline([(0, 0), (radius, 0), (radius, taper_start_z)])
                 else:
                     Polyline([(0, 0), (radius, 0)])
@@ -260,45 +260,13 @@ def _build_lattice(studs_x, studs_y, inner_x, inner_y, cavity_z,
         parts.append(arm.part)
 
     if not parts:
-        # Fallback: empty lattice
-        with BuildPart() as lattice:
-            Box(0.01, 0.01, 0.01)
-        return lattice.part
+        return None
 
     result = parts[0]
     for p in parts[1:]:
         result = result + p
     return result
 
-
-def _build_tubes(studs_x, studs_y, cavity_z):
-    """
-    Pure function, specific. Build LEGO-style anti-stud tubes as a standalone Part.
-
-    Tubes are placed at the center of each 2x2 stud group — the (N-1)x(M-1) grid.
-    Requires studs_x >= 2 and studs_y >= 2.
-
-    Args:
-        studs_x (int): Studs along X.
-        studs_y (int): Studs along Y.
-        cavity_z (float): Cavity height (extrusion depth).
-
-    Returns:
-        Part or None: Tube geometry, or None if brick is too small for tubes.
-
-    Examples:
-        >>> # _build_tubes(2, 4, 8.6)  -> 3 tubes
-        >>> # _build_tubes(1, 4, 8.6)  -> None (1-wide)
-    """
-    if studs_x < 2 or studs_y < 2:
-        return None
-    with BuildPart() as tb:
-        with BuildSketch():
-            with GridLocations(PITCH, PITCH, studs_x - 1, studs_y - 1):
-                Circle(TUBE_OUTER_RADIUS)
-                Circle(TUBE_INNER_RADIUS, mode=Mode.SUBTRACT)
-        extrude(amount=cavity_z)
-    return tb.part
 
 
 def _build_ridge(studs_x, studs_y, cavity_z):
@@ -500,8 +468,8 @@ def _cross_concave_vertices(sketch, v_w, h_h):
     convex = []
     concave = []
     for v in sketch.vertices():
-        at_jx = abs(abs(v.X) - jx) < 0.01
-        at_jy = abs(abs(v.Y) - jy) < 0.01
+        at_jx = abs(abs(v.X) - jx) < GEOM_TOL
+        at_jy = abs(abs(v.Y) - jy) < GEOM_TOL
         if at_jx and at_jy:
             concave.append(v)
         else:
@@ -530,8 +498,8 @@ def _cross_sketch(h_w, h_h, v_w, v_h, h_offset_x, v_offset_y,
         >>> # Called inside BuildSketch: _cross_sketch(15.6, 7.6, 7.6, 15.6, 0, 0)
     """
     # Degenerate rectangle: single bar, use simple rounded rect
-    is_degenerate = (abs(h_w - v_w) < 0.01 and abs(h_h - v_h) < 0.01
-                     and abs(h_offset_x) < 0.01 and abs(v_offset_y) < 0.01)
+    is_degenerate = (abs(h_w - v_w) < GEOM_TOL and abs(h_h - v_h) < GEOM_TOL
+                     and abs(h_offset_x) < GEOM_TOL and abs(v_offset_y) < GEOM_TOL)
     if is_degenerate:
         _rounded_rect(h_w, h_h, _clamp_cr(cr, h_w, h_h) if cr > 0 else 0)
         return
@@ -592,7 +560,7 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
     has_taper = taper_height > 0 and taper_inset > 0
 
     if has_taper:
-        # Loft approach: same as _build_outer_shell but with cross footprint
+        # Loft approach: cross footprint with multi-profile taper
         taper_start_z = height - taper_height
         with BuildPart() as shell:
             # Base sketch (Z=0)
@@ -639,8 +607,8 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
         return shell.part
 
     # No corner radius, no taper: fast Box path
-    is_degenerate = (abs(h_w - v_w) < 0.01 and abs(h_h - v_h) < 0.01
-                     and abs(h_offset_x) < 0.01 and abs(v_offset_y) < 0.01)
+    is_degenerate = (abs(h_w - v_w) < GEOM_TOL and abs(h_h - v_h) < GEOM_TOL
+                     and abs(h_offset_x) < GEOM_TOL and abs(v_offset_y) < GEOM_TOL)
     with BuildPart() as shell:
         if is_degenerate:
             Box(h_w, h_h, height,
@@ -694,8 +662,8 @@ def _cross_cavity_bar_dims(plus_x, minus_x, plus_y, minus_y, width_x, width_y):
         bars.append((h_offset_x, 0.0, h_w, h_h))
     if v_w > 0 and v_h > 0:
         bars.append((0.0, v_offset_y, v_w, v_h))
-    # Deduplicate: degenerate rectangle has h_bar == v_bar
-    if len(bars) == 2 and bars[0] == bars[1]:
+    # Deduplicate: degenerate rectangle has h_bar ≈ v_bar
+    if len(bars) == 2 and all(abs(a - b) < GEOM_TOL for a, b in zip(bars[0], bars[1])):
         bars = bars[:1]
     return bars
 
@@ -877,7 +845,8 @@ def _try_fillet(result, fillet_z):
         return bevel_above_z(result, FILLET_RADIUS, z_threshold=fillet_z,
                              style=EDGE_STYLE, include_bottom=FILLET_BOTTOM,
                              skip_concave=SKIP_CONCAVE)
-    except ValueError:
+    except ValueError as e:
+        print(f"Warning: fillet skipped (OCCT ValueError: {e})")
         return result
 
 
@@ -1005,9 +974,11 @@ def brick(studs_x, studs_y, height=BRICK_HEIGHT,
             grid_off = (dims["h_offset_i"] * PITCH,
                         dims["v_offset_j"] * PITCH)
             if inner_x > 0 and inner_y > 0:
-                add(_build_lattice(sx, sy, inner_x, inner_y, cavity_z,
-                                   clip_rects=cavity_bars,
-                                   grid_offset=grid_off))
+                lattice = _build_lattice(sx, sy, inner_x, inner_y, cavity_z,
+                                         clip_rects=cavity_bars,
+                                         grid_offset=grid_off)
+                if lattice is not None:
+                    add(lattice)
 
         # Studs
         _place_studs(stud_positions, height,
@@ -1096,15 +1067,16 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
     cavity_z = height - FLOOR_THICKNESS
     fillet_z = cavity_z if clutch == "LATTICE" else 0.0
 
-    # Junction-centered edge coordinates for slope planes
+    # Junction-centered edge coordinates for slope planes.
+    # Use raw PITCH-based edges (not CLEARANCE-adjusted shell dims) so the
+    # slope hinge aligns with the stud grid. CLEARANCE only affects the outer
+    # shell size, not where the slope should start.
     h_offset_x = dims["h_offset_i"] * PITCH
     v_offset_y = dims["v_offset_j"] * PITCH
-    bbox_x = sx * PITCH - 2 * CLEARANCE
-    bbox_y = sy * PITCH - 2 * CLEARANCE
-    edge_minus_x = h_offset_x - bbox_x / 2
-    edge_plus_x = h_offset_x + bbox_x / 2
-    edge_minus_y = v_offset_y - bbox_y / 2
-    edge_plus_y = v_offset_y + bbox_y / 2
+    edge_minus_x = h_offset_x - sx * PITCH / 2
+    edge_plus_x = h_offset_x + sx * PITCH / 2
+    edge_minus_y = v_offset_y - sy * PITCH / 2
+    edge_plus_y = v_offset_y + sy * PITCH / 2
 
     # Compute all slope planes
     cut_planes = []
@@ -1152,7 +1124,9 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
                         Circle(TUBE_OUTER_RADIUS)
                         Circle(TUBE_INNER_RADIUS, mode=Mode.SUBTRACT)
                 extrude(amount=cavity_z)
-            clipped_clutch = tb.part & sloped_cavity
+            intersection = tb.part & sloped_cavity
+            if intersection.volume > GEOM_TOL:
+                clipped_clutch = intersection
     elif clutch == "LATTICE":
         inner_x = sx * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
         inner_y = sy * PITCH - 2 * CLEARANCE - 2 * WALL_THICKNESS
@@ -1160,7 +1134,10 @@ def slope(studs_x, studs_y, height=BRICK_HEIGHT,
             lattice = _build_lattice(sx, sy, inner_x, inner_y, cavity_z,
                                      clip_rects=cavity_bars,
                                      grid_offset=grid_off)
-            clipped_clutch = lattice & sloped_cavity
+            if lattice is not None:
+                intersection = lattice & sloped_cavity
+                if intersection.volume > GEOM_TOL:
+                    clipped_clutch = intersection
 
     # Flat stud positions (all positions filtered by slope hinges)
     all_stud_xy = _cross_stud_positions(plus_x, minus_x, plus_y, minus_y,
@@ -1220,19 +1197,19 @@ def _filter_flat_studs(stud_positions, edge_minus_x, edge_plus_x,
         for direction, flat_rows in active_slopes:
             if direction == "+Y":
                 hinge_y = edge_minus_y + flat_rows * PITCH
-                if y > hinge_y - PITCH / 2 + 0.01:
+                if y > hinge_y - PITCH / 2 + GEOM_TOL:
                     is_flat = False
             elif direction == "-Y":
                 hinge_y = edge_plus_y - flat_rows * PITCH
-                if y < hinge_y + PITCH / 2 - 0.01:
+                if y < hinge_y + PITCH / 2 - GEOM_TOL:
                     is_flat = False
             elif direction == "+X":
                 hinge_x = edge_minus_x + flat_rows * PITCH
-                if x > hinge_x - PITCH / 2 + 0.01:
+                if x > hinge_x - PITCH / 2 + GEOM_TOL:
                     is_flat = False
             elif direction == "-X":
                 hinge_x = edge_plus_x - flat_rows * PITCH
-                if x < hinge_x + PITCH / 2 - 0.01:
+                if x < hinge_x + PITCH / 2 - GEOM_TOL:
                     is_flat = False
         if is_flat:
             flat.append((x, y))

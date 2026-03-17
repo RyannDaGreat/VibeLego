@@ -94,19 +94,21 @@ def _build(params):
         cross_width_x=cross_width_x, cross_width_y=cross_width_y,
     )
 
+    height = float(params.get("BRICK_HEIGHT", common.BRICK_HEIGHT))
+
     if params.get("enable_slope", False):
         slope_plus_y = int(params.get("slope_plus_y", 0))
         slope_minus_y = int(params.get("slope_minus_y", 0))
         slope_plus_x = int(params.get("slope_plus_x", 0))
         slope_minus_x = int(params.get("slope_minus_x", 0))
         slope_min_z = float(params.get("slope_min_z", common.WALL_THICKNESS))
-        return brick_lib.slope(studs_x, studs_y,
+        return brick_lib.slope(studs_x, studs_y, height=height,
                                slope_plus_y=slope_plus_y, slope_minus_y=slope_minus_y,
                                slope_plus_x=slope_plus_x, slope_minus_x=slope_minus_x,
                                slope_min_z=slope_min_z,
                                **shape_kwargs)
 
-    return brick_lib.brick(studs_x, studs_y, **shape_kwargs)
+    return brick_lib.brick(studs_x, studs_y, height=height, **shape_kwargs)
 
 
 def run(params, stl_path):
