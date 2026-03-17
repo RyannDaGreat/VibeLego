@@ -532,8 +532,36 @@ Do NOT use `Mode.INTERSECT` in BuildPart for this — it trims the *entire exist
 ### Coplanar Face Caveat
 Never construct two shapes that share an entire planar face and then boolean-union them. OCCT produces degenerate triangles at the shared boundary, causing missing/flipped faces in tessellation (STL export). Example: wall extrusion (Z=0 to 8.6) + ceiling box (Z=8.6 to 9.6) → degenerate triangles at Z=8.6. Fix: use subtraction instead (solid box - cavity), so the ceiling is integral.
 
+### CRITICAL: `Pos * Primitive` Inside Builder Contexts Is Silently Broken
+
+**NEVER write `Pos(...) * Box(...)`, `Pos(...) * Cylinder(...)`, or any `Pos * Primitive` inside a `BuildPart` or `BuildSketch` context.** The offset is silently ignored.
+
+**Why it breaks:** Python evaluates `Box(...)` first. Inside a builder context, `Box()` immediately registers itself at **origin** as a side effect. Then `Pos * box_result` creates a correctly-positioned copy that is **thrown away**. The builder context keeps the original at origin.
+
+**Correct idiom — always use `Locations`:**
+```python
+# WRONG (Pos silently ignored):
+with BuildPart():
+    Pos(0, 56, 0) * Box(8, 152, 10, align=(...))  # → box at origin
+
+# CORRECT:
+with BuildPart():
+    with Locations([Pos(0, 56, 0)]):
+        Box(8, 152, 10, align=(...))  # → box at Y=56
+```
+
+**Algebra mode outside builders is fine:**
+```python
+# OK — no builder context, Pos applies correctly:
+box = Pos(0, 56, 0) * Box(8, 152, 10)
+with BuildPart():
+    add(box)  # correctly positioned
+```
+
+This bug is invisible for symmetric shapes (offset is zero). It only manifests for asymmetric geometry — the worst kind of silent failure.
+
 ### Algebra Mode Location * Shape Caveat (BuildSketch)
-`Pos(x, y) * Rot(0, 0, angle) * Rectangle(w, h)` (algebra mode) does NOT apply the transform in a `BuildSketch`. The rotation and position are silently ignored — the rectangle stays at origin, unrotated. Use `with Locations([Pos(x, y) * Rot(0, 0, angle)]):` context manager instead. This only affects sketch mode — algebra mode works fine in `BuildPart`.
+`Pos(x, y) * Rot(0, 0, angle) * Rectangle(w, h)` (algebra mode) does NOT apply the transform in a `BuildSketch`. The rotation and position are silently ignored — the rectangle stays at origin, unrotated. Use `with Locations([Pos(x, y) * Rot(0, 0, angle)]):` context manager instead. This applies to BOTH `BuildSketch` AND `BuildPart` contexts (see critical caveat above).
 
 ### Locations + BuildSketch Caveat
 `Locations([Pos(0, 0, z)])` does **NOT** move a `BuildSketch(Plane.XY)` to Z=z. The sketch plane stays at Z=0 regardless. Use `BuildSketch(Plane.XY.offset(z))` to place a sketch at a specific Z. `Locations` only moves 3D shapes and sketch *contents* (shapes within a sketch), not the sketch plane itself.
@@ -541,7 +569,7 @@ Never construct two shapes that share an entire planar face and then boolean-uni
 ### Built-in Features Used in lego_lib.py
 - **`GridLocations(x_spacing, y_spacing, x_count, y_count)`** — centered grid positioning (replaces manual centered_grid function). No Z offset — use `Plane.XY.offset(z)` on the BuildSketch instead.
 - **`offset(shape, amount, kind=Kind.INTERSECTION)`** — in 2D sketch: shrinks a rectangle to create wall profile. `Kind.INTERSECTION` = sharp corners, `Kind.ARC` = rounded. (Not currently used in lego_lib — shell is built via outer box minus cavity instead. Kept here as reference for future use.)
-- **`Pos(x,y,z) * Shape`** — position a shape at a location inside BuildPart. Cleaner than `Locations` for single positions.
+- **`Pos(x,y,z) * Shape`** — ~~position a shape at a location inside BuildPart~~. **BROKEN inside builder contexts** — see critical caveat above. Use `with Locations([Pos(...)]):` instead. Only safe outside builder contexts (algebra mode + `add()`).
 - **`Compound([parts])`** — groups without boolean (vs `+` which fuses)
 
 ### Cheat Sheet Highlights

@@ -616,3 +616,105 @@ Slope -Y, Corner roof, Pyramid, Cross+slope). 7/7 lattice geometry tests pass.
 - Some face counts changed slightly for LEGO configs (541→365 for 2x4) — this is
   expected because junction centering subtly changes which edges are selected for
   fillet/chamfer. No visual impact.
+
+## 2026-03-16: `Pos * Box` Silent Offset Bug (CRITICAL — build123d API misuse)
+
+### Discovery: 10-agent sonnet frenzy
+
+Despite the junction centering fix above, the user reported "cavity moves at 1/2 speed"
+for asymmetric crosses (+X=2, -X=2, +Y=16, -Y=2). A 10-agent research frenzy was
+launched to find the systemic root cause.
+
+**Key findings by agent:**
+- **Agents 1, 2, 6, 7**: The offset MATH is correct. `_cross_footprint_dims` is the
+  single source of truth; all 9 usage sites consume it correctly. Wall thickness is
+  algebraically guaranteed uniform. No DRY violations remain.
+- **Agents 4, 10 (independently!)**: The bug is a **build123d API misuse**. `Pos * Box`
+  inside `BuildPart` silently ignores the offset.
+- **Agent 5**: Found structural code smells (5 independent derivation sites, 4 coordinate
+  systems, tests that only check "no crash").
+- **Agent 8**: Proposed `BrickLayout` frozen dataclass architecture.
+- **Agent 9**: Found zero positional assertions in tests; proposed 6 alignment tests.
+- **Agent 3**: Claimed lattice parity bug — later shown to be incorrect (diamonds sit
+  between struts, not at strut intersections).
+
+### Root cause: Python evaluation order + build123d context system
+
+```python
+# BROKEN — inside BuildPart context:
+Pos(0, 56, 0) * Box(8, 152, 10, align=(...))
+# Python evaluates Box() FIRST → Box registers at origin in the active context
+# Then Pos * box_result → creates a MOVED COPY that is THROWN AWAY
+# Result: box at origin, Pos offset silently lost
+
+# CORRECT:
+with Locations([Pos(0, 56, 0)]):
+    Box(8, 152, 10, align=(...))
+# Locations sets the context location BEFORE Box is created
+```
+
+### Empirical verification
+
+```
+Pos * Box:      Y=[-76.0, 76.0]   center=0.0   ← BROKEN
+Locations+Box:  Y=[-20.0, 132.0]  center=56.0   ← CORRECT
+
+Shell (fast):   Y=[-75.9, 75.9]   center=0.0    ← BROKEN (Pos * Box path)
+Shell (CR):     Y=[-19.9, 131.9]  center=56.0   ← CORRECT (_cross_sketch path)
+Cavity:         Y=[-74.4, 74.4]   center=0.0    ← BROKEN (always Pos * Box)
+Studs:          Y=[-16.0, 128.0]  center=56.0   ← CORRECT (pure math)
+```
+
+When the Clara Mini preset enables corner_radius, the shell takes the correct
+`_cross_sketch` path but the cavity ALWAYS uses `Pos * Box`. Result: shell at Y=56
+but cavity at Y=0 — hence "cavity at half speed."
+
+### Three affected sites in brick_lib.py
+
+1. **`_build_cross_shell`** L648-651 (fast Box path, no taper/no CR):
+   `Pos(h_offset_x, 0, 0) * Box(...)` and `Pos(0, v_offset_y, 0) * Box(...)`
+   Only triggered for asymmetric crosses with corner_radius=0 AND taper=0.
+
+2. **`_build_cross_cavity`** L722-724 (ALL configs):
+   `Pos(cx, cy, 0) * Box(w, h, cavity_z, ...)` for each bar.
+   Always broken for asymmetric crosses, regardless of taper/CR settings.
+
+3. **`_build_ridge`** L327-328:
+   `Pos(0, 0, cavity_z - RIDGE_HEIGHT) * Box(...)` — ridge placed at Z=0 instead
+   of top of cavity. Functionally broken (ridge should engage studs above, but sits
+   at floor).
+
+### Why this wasn't caught
+
+- **Symmetric shapes**: Offset is (0,0,0) → `Pos * Box` is identity → bug invisible.
+- **Integration tests**: Only check "no exception" + face count. Zero positional assertions.
+- **Lattice tests**: Test internal math, not geometry output positions.
+- **VLM verification**: Rendered the asymmetric cross after junction centering, but the
+  VLM script used the same config as the test — the Clara Mini preset likely had
+  corner_radius > 0, taking the correct sketch path for the shell.
+
+### Manifest was the source of the bug
+
+Line 544 of claude_instructions.md said:
+> `Pos(x,y,z) * Shape` — position a shape at a location inside BuildPart. Cleaner
+> than `Locations` for single positions.
+
+And line 536 said:
+> This only affects sketch mode — algebra mode works fine in `BuildPart`.
+
+Both statements are **wrong** for builder primitives (Box, Cylinder, etc.) inside a
+builder context. The manifest gave incorrect guidance that directly led to writing
+the broken code. Fix: correct the manifest, add a CRITICAL warning.
+
+### Lesson learned
+
+**Silent failures violate the "no silent errors" rule.** The `Pos * Primitive` pattern
+inside builder contexts is a semantic trap: it looks correct, compiles, runs without
+error, and produces wrong geometry silently. Defense:
+1. Ban `Pos * Primitive` inside builder contexts — always use `Locations`
+2. Add positional assertions to tests (cavity center == shell center)
+3. Consider a `BrickLayout` dataclass to eliminate independent position derivation
+
+### Frenzy reports
+
+Full agent reports in `.frenzy/agent_{1..10}_*.md`.

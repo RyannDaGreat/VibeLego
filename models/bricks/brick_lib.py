@@ -324,8 +324,9 @@ def _build_ridge(studs_x, studs_y, cavity_z):
     ridge_len = (max(studs_x, studs_y) - 1) * PITCH
     rx, ry = (RIDGE_WIDTH, ridge_len) if studs_x == 1 else (ridge_len, RIDGE_WIDTH)
     with BuildPart() as rp:
-        Pos(0, 0, cavity_z - RIDGE_HEIGHT) * Box(rx, ry, RIDGE_HEIGHT,
-            align=(Align.CENTER, Align.CENTER, Align.MIN))
+        with Locations([Pos(0, 0, cavity_z - RIDGE_HEIGHT)]):
+            Box(rx, ry, RIDGE_HEIGHT,
+                align=(Align.CENTER, Align.CENTER, Align.MIN))
     return rp.part
 
 
@@ -645,10 +646,12 @@ def _build_cross_shell(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
             Box(h_w, h_h, height,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
         else:
-            Pos(h_offset_x, 0, 0) * Box(h_w, h_h, height,
-                align=(Align.CENTER, Align.CENTER, Align.MIN))
-            Pos(0, v_offset_y, 0) * Box(v_w, v_h, height,
-                align=(Align.CENTER, Align.CENTER, Align.MIN))
+            with Locations([Pos(h_offset_x, 0, 0)]):
+                Box(h_w, h_h, height,
+                    align=(Align.CENTER, Align.CENTER, Align.MIN))
+            with Locations([Pos(0, v_offset_y, 0)]):
+                Box(v_w, v_h, height,
+                    align=(Align.CENTER, Align.CENTER, Align.MIN))
     return shell.part
 
 
@@ -720,8 +723,9 @@ def _build_cross_cavity(plus_x, minus_x, plus_y, minus_y, width_x, width_y,
                                   width_x, width_y)
     with BuildPart() as cav:
         for cx, cy, w, h in bars:
-            Pos(cx, cy, 0) * Box(w, h, cavity_z,
-                align=(Align.CENTER, Align.CENTER, Align.MIN))
+            with Locations([Pos(cx, cy, 0)]):
+                Box(w, h, cavity_z,
+                    align=(Align.CENTER, Align.CENTER, Align.MIN))
     return cav.part
 
 
