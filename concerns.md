@@ -718,3 +718,105 @@ error, and produces wrong geometry silently. Defense:
 ### Frenzy reports
 
 Full agent reports in `.frenzy/agent_{1..10}_*.md`.
+
+## 2026-03-16: 10-Agent Silent Error Audit + User-Reported Issues
+
+### Audit methodology
+
+After fixing the Pos*Box bug, a 10-agent sonnet frenzy audited the entire codebase for
+other silent error patterns. Each agent searched a different category:
+1. Remaining Pos*Primitive patterns (CLEAN)
+2. Rot*Primitive patterns (CLEAN)
+3. Discarded return values
+4. Silently ignored parameters
+5. Test coverage gaps
+6. Numeric precision traps
+7. build123d API misuse
+8. Python anti-patterns (mutable defaults, late binding, etc.)
+9. Stale/dead code paths
+10. Boolean/Mode silent errors
+
+### High-severity findings
+
+1. **Degenerate lattice fallback** (brick_lib.py:262-266): Returns `Box(0.01, 0.01, 0.01)`
+   instead of None when lattice is empty. Inserts a tiny solid artifact into the STL.
+   Violates "no silent fallbacks" rule.
+
+2. **Empty intersection truthiness** (brick_lib.py:1155,1163): `& sloped_cavity` can
+   produce empty geometry that passes `if clipped_clutch:` check (not None, just empty
+   volume). Gets `add()`'d silently.
+
+3. **Dead `_build_tubes()` function** (brick_lib.py:274-301): Never called anywhere.
+   Orphans the `GridLocations` import. Superseded by inline tube placement during
+   cross-shape refactor.
+
+4. **STUD_HEIGHT panel default wrong** (panel_def.py:156): Default is `4.0` but the
+   real constant is `1.8`. Fresh panel sessions build studs 2.2mm too tall unless a
+   preset is applied. All three presets explicitly override to 1.8.
+
+### Medium-severity findings
+
+5. **`_try_fillet` silent fallback** (brick_lib.py:876-881): `ValueError` from OCCT
+   caught and swallowed with zero logging. No indication that filleting was skipped.
+
+6. **`bars[0] == bars[1]` exact float equality** (brick_lib.py:698): Compares tuples
+   of floats for exact equality. Works for current constants (PITCH=8.0) but fragile
+   to parameter changes.
+
+7. **`except Exception` in test runner** (test_integration.py:148): Swallows full
+   traceback, making debugging hard. Only prints str(e).
+
+8. **`except Exception` in build worker** (build_worker.py:80): Catches
+   KeyboardInterrupt/SystemExit, prevents clean shutdown.
+
+9. **`render_preview.py:107` missing `mat.use_nodes = True`**: Could crash on some
+   Blender versions where `mat.node_tree` is None by default.
+
+10. **Dead `brick_type=="PLATE"` branch** (panel_common.py:229): Key is never set
+    by anything. The PLATE branch is permanently dead code.
+
+### Low-severity findings
+
+11. **5+ magic tolerance values** (0.01, 0.05, 0.001) scattered across files with no
+    shared constant. Should be `GEOM_TOL = 0.01` in common.py.
+
+12. **Dead aliases**: `fillet_above_z` (common.py:100), `POLISH_SECTION`
+    (panel_common.py:145) — never referenced.
+
+13. **Stale comment** (brick_lib.py:595): References deleted `_build_outer_shell`.
+
+14. **`BuildSketch._get_context()` private API** (brick_lib.py:544): Could break on
+    build123d updates.
+
+### Test coverage gaps (systemic)
+
+- ALL 28 integration tests are no-crash-only — zero positional/dimensional assertions
+- 4 functions never tested: `_build_ridge`, `_build_stud` with taper, `_taper_profile`
+  CURVED, `_cross_tube_positions` with actual tubes
+- 8 branch paths never reached by tests (CURVED taper, slope fallback, etc.)
+- 10 edge cases missing (1x1 brick, fat arms, clamped CR, etc.)
+- 3 missing regression tests for known bugs
+
+### User-reported issues (investigated same session)
+
+15. **Slope deck overhang**: CLEARANCE (0.1mm) leaks into slope hinge calculation.
+    `edge_minus_y = v_offset_y - (sy*PITCH - 2*CLEARANCE)/2` pushes the hinge 0.1mm
+    inward from the outer shell face, creating a flat ledge at the top of the slope.
+    Fix: compute hinge from raw PITCH grid, not clearance-adjusted bbox.
+
+16. **BRICK_HEIGHT slider does nothing**: `parametric.py _build()` never reads `height`
+    from params. Python bakes the default `9.6` at function definition time.
+    `apply_overrides` patches the module attribute but the function default is a
+    captured float, not a live reference. Fix: explicitly read height from params.
+
+17. **FLOOR_THICKNESS**: Works correctly (controls cavity depth and slope cavity plane
+    offset). User didn't see the effect because the cavity bottom is hidden inside
+    the brick. Not a bug — just not visually obvious.
+
+18. **CLEARANCE**: Valid brick-fitting tolerance (0.1mm per side). Without it, adjacent
+    bricks would bind. Should NOT be removed. But it should NOT leak into slope hinge
+    calculation. The slope should use raw PITCH-based edges, not clearance-adjusted edges.
+
+19. **"Pitch" terminology**: Not official LEGO terminology. The official term is "LSS"
+    (LEGO Stud Spacing). "Pitch" is an engineering term that's well-understood and
+    fine to keep. Our value (8.0mm) matches the standard LSS (measured: 7.985mm).
