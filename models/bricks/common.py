@@ -39,6 +39,8 @@ STUD_TEXT_ROTATION = 0.0  # text rotation angle (degrees)
 
 STUD_RADIUS = STUD_DIAMETER / 2
 
+GEOM_TOL = 0.01              # geometry comparison tolerance (mm)
+
 
 # ── General helper ───────────────────────────────────────────────────────────
 
@@ -95,6 +97,3 @@ def bevel_above_z(part, radius, z_threshold=0.0, tolerance=0.01,
         return part.chamfer(radius, None, edges)
     return part.fillet(radius, edges)
 
-
-# Backwards compatibility alias
-fillet_above_z = bevel_above_z

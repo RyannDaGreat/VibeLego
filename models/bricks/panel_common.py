@@ -21,6 +21,8 @@ from common import (
 )
 
 
+FACE_CLASS_TOL = 0.05  # face classification tolerance (mm)
+
 # ── Shared panel sections ────────────────────────────────────────────────────
 
 WALLS_SECTION = {
@@ -141,9 +143,6 @@ FILLET_SECTION = {
     ],
 }
 
-# Backwards compatibility alias
-POLISH_SECTION = FILLET_SECTION
-
 
 # ── Anatomy highlight system ─────────────────────────────────────────────────
 # Defines regions, colors, and classification for the blender_watcher anatomy
@@ -226,12 +225,7 @@ def classify_face(mesh, poly, params):
     clearance = float(params.get("CLEARANCE", 0.1))
     floor_thickness = float(params.get("FLOOR_THICKNESS", 1.0))
 
-    # Use the brick_type to get actual height (plate vs brick)
-    brick_type = params.get("brick_type", "BRICK")
-    if brick_type == "PLATE":
-        height = float(params.get("PLATE_HEIGHT", 3.2))
-    else:
-        height = brick_height
+    height = brick_height
 
     # Taper params (0 = no taper)
     taper_height = float(params.get("taper_height", 0))
@@ -254,7 +248,7 @@ def classify_face(mesh, poly, params):
     half_iy = inner_y / 2
     cavity_z = height - floor_thickness
 
-    tol = 0.05  # classification tolerance (mm)
+    tol = FACE_CLASS_TOL
 
     # Logo: faces above stud tops (text extrusion)
     if cz > height + stud_height - tol:
